@@ -143,6 +143,15 @@ map, repainted only around provinces that actually change hands; zoomed in it
 draws vectors with bounding-box culling. Both use the same colours and line
 weights, so crossing the threshold is not noticeable.
 
+Provinces are not flat colour. Each terrain type has a tiling pattern — ridges
+for mountains, canopy for forest, dunes for desert, a street grid for cities —
+laid over the national colour, with the pattern transform keeping the texture a
+constant size on screen at any zoom. Coastlines get a band of pale shelf water,
+borders are light on dark (thin between provinces, heavy between nations), and
+country names are set across the map in atlas style: biggest first, with any
+label that would collide with one already placed simply dropped. City dots and
+stack markers thin out as the view widens so the world view stays legible.
+
 ## Tests
 
 ```bash
@@ -162,8 +171,9 @@ identically.
 
 `uitest` loads the page in Chromium, starts a game as Mongolia, issues a move
 order, confirms an army is refused entry to a neighbour it is at peace with,
-opens every screen, runs the clock at 16×, round-trips a save, checks the
-desktop layout for horizontal overflow, and fails on any console error.
+declares war through the confirmation dialog and checks the treaty really
+changed, opens every screen, runs the clock at 16×, round-trips a save, checks
+the desktop layout for horizontal overflow, and fails on any console error.
 Screenshots land in `tools/shots/`.
 
 `buildmap` checks itself too: it verifies fifteen real capitals land inside a

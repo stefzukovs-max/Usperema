@@ -619,11 +619,41 @@
         ? 'Bombarding ' + state.provinces[army.order.target].name
         : army.inCombat ? 'In combat' : 'Holding position';
 
-    wrap.appendChild(el('div', { class: 'stat-grid' }, [
-      stat('Strength', Math.round(st.hp) + ' / ' + Math.round(st.max)),
-      stat('Battalions', String(SWW.state.unitCount(army))),
-      stat('Entrenched', Math.round(army.entrench * 100) + '%'),
-      stat('Status', statusText)
+    /*
+     * The readout: everything you need to judge a fight at a glance — who they
+     * are, how hurt they are, and the four numbers that decide the next hour.
+     */
+    var owner = state.nationById[army.ownerId];
+    var speed = SWW.orders.armySpeed(state, army, prov);
+    var attack = 0, defence = 0;
+    for (var g = 0; g < army.units.length; g++) {
+      var gt = UnitData.BY_ID[army.units[g].typeId];
+      var live = army.units[g].hp / gt.hp;
+      attack += (gt.atk.inf + gt.atk.arm) / 2 * live;
+      defence += (gt.def.inf + gt.def.arm) / 2 * live;
+    }
+    var terrain = prov.isSea ? null : SWW.worldgen.TERRAIN[prov.terrain];
+    var ratio = clamp(st.ratio, 0, 1);
+
+    wrap.appendChild(el('div', { class: 'readout' }, [
+      el('span', { class: 'readout-flag', style: 'background:' + (owner ? owner.color : '#888') }),
+      el('div', { class: 'readout-main' }, [
+        el('div', { class: 'readout-name', text: army.name }),
+        el('div', { class: 'readout-status', text: statusText })
+      ]),
+      el('div', { class: 'readout-hp' }, [
+        el('div', { class: 'readout-hp-num', text: Math.round(st.hp) + '/' + Math.round(st.max) }),
+        progressBar(ratio, ratio > 0.6 ? 'ok' : ratio > 0.3 ? 'warn' : 'bad')
+      ])
+    ]));
+
+    wrap.appendChild(el('div', { class: 'readout-stats' }, [
+      readStat('♥', Math.round(ratio * 100) + '%', 'Condition'),
+      readStat('\u{1F6E1}', '+' + Math.round(army.entrench * 45) + '%', 'Entrenchment bonus'),
+      readStat('⋙', speed.toFixed(2), 'Provinces per hour, in this terrain'),
+      readStat('⚡', attack.toFixed(1), 'Attack strength'),
+      readStat('⛨', defence.toFixed(1), 'Defence strength'),
+      terrain ? readStat('⛰', Math.round((terrain.def - 1) * 100) + '%', terrain.name + ' defence modifier') : null
     ]));
 
     if (mine) {
@@ -849,9 +879,12 @@
         actions.appendChild(el('button', {
           class: 'danger-btn', text: 'Declare war',
           onclick: function () {
-            if (!global.confirm('Declare war on ' + n.name + '?')) return;
-            SWW.diplomacy.declareWar(state, me.id, n.id, 'a formal declaration');
-            self.refreshModal();
+            self.confirm('Confirm action',
+              'This will declare an unprovoked war against ' + n.name + '. Do you wish to proceed?',
+              function () {
+                SWW.diplomacy.declareWar(state, me.id, n.id, 'a formal declaration');
+                self.refreshModal();
+              }, { danger: true, okLabel: 'Declare war' });
           }
         }));
       }
@@ -1150,18 +1183,20 @@
       text: info ? 'Load last save (day ' + (Math.floor(info.time / 24) + 1) + ')' : 'No save found',
       onclick: function () {
         if (!info) return;
-        if (!global.confirm('Load the last save? Unsaved progress is lost.')) return;
-        var r = SWW.save.load();
-        if (!r.ok) { self.toast('Load failed: ' + r.why, 'warn'); return; }
-        SWW.game.replaceState(r.state);
-        self.closeModal();
+        self.confirm('Load save', 'Unsaved progress in this war will be lost.', function () {
+          var r = SWW.save.load();
+          if (!r.ok) { self.toast('Load failed: ' + r.why, 'warn'); return; }
+          SWW.game.replaceState(r.state);
+          self.closeModal();
+        }, { okLabel: 'Load' });
       }
     }));
     wrap.appendChild(el('button', {
       class: 'danger-btn wide', text: 'Abandon and start a new war',
       onclick: function () {
-        if (!global.confirm('Leave this war and return to the menu?')) return;
-        SWW.game.toMenu();
+        self.confirm('Abandon the war',
+          'Your nation will be left to the AI and you will return to the menu.',
+          function () { SWW.game.toMenu(); }, { danger: true, okLabel: 'Abandon' });
       }
     }));
     return wrap;
@@ -1189,11 +1224,46 @@
     ]);
   };
 
+  /**
+   * In-game confirmation, in place of the browser's own dialog.  Irreversible
+   * actions deserve to look like part of the game, and `window.confirm` blocks
+   * the render loop while it is open.
+   */
+  UI.confirm = function (title, text, onConfirm, opts) {
+    opts = opts || {};
+    var host = doc.getElementById('confirmLayer');
+    clear(host);
+    var close = function () { host.classList.remove('show'); clear(host); };
+    host.appendChild(el('div', {
+      class: 'confirm-backdrop',
+      onclick: function (e) { if (e.target === e.currentTarget) close(); }
+    }, el('div', { class: 'confirm-box' }, [
+      el('div', { class: 'confirm-head', text: title }),
+      el('div', { class: 'confirm-body', text: text }),
+      el('div', { class: 'confirm-actions' }, [
+        el('button', {
+          class: 'confirm-ok' + (opts.danger ? ' danger' : ''),
+          onclick: function () { close(); onConfirm(); }
+        }, [el('span', { class: 'confirm-glyph', text: '✔' }), el('span', { text: opts.okLabel || 'OK' })]),
+        el('button', { class: 'confirm-cancel', onclick: close },
+          [el('span', { class: 'confirm-glyph', text: '✕' }), el('span', { text: 'Cancel' })])
+      ])
+    ])));
+    host.classList.add('show');
+  };
+
   // --- toasts and overlays -------------------------------------------------
 
   UI.toast = function (text, kind) {
     var host = doc.getElementById('toasts');
-    var node = el('div', { class: 'toast ' + (kind || ''), text: text });
+    var t = util.fmtTime(this.state ? this.state.time : 0);
+    var node = el('div', { class: 'toast ' + (kind || '') }, [
+      el('span', { class: 'toast-text', text: text }),
+      el('span', { class: 'toast-time' }, [
+        el('span', { text: 'Day ' + t.day }),
+        el('span', { text: t.clock })
+      ])
+    ]);
     host.appendChild(node);
     global.setTimeout(function () {
       node.classList.add('out');
@@ -1260,6 +1330,14 @@
 
   function section(title, content) {
     return el('div', { class: 'section' }, [el('h3', { text: title }), content]);
+  }
+
+  /** One icon-and-number cell in the army readout strip. */
+  function readStat(icon, value, title) {
+    return el('div', { class: 'read-stat', title: title }, [
+      el('span', { class: 'rs-icon', text: icon }),
+      el('span', { class: 'rs-val', text: value })
+    ]);
   }
 
   function stat(label, value) {

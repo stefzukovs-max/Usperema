@@ -178,6 +178,35 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
     await page.waitForTimeout(120);
   }
 
+  // The styled confirmation must appear, and must actually do the thing.
+  await page.click('.nav-btn[data-nav="diplomacy"]');
+  await page.waitForSelector('#modalBackdrop.show');
+  var warTarget = await page.evaluate(function () {
+    var rows = document.querySelectorAll('.nation-row');
+    return rows.length ? rows[0].querySelector('.nation-name span').textContent : null;
+  });
+  if (!warTarget) fail('diplomacy listed no neighbours to declare war on');
+  else {
+    await page.locator('.nation-row .danger-btn').first().click();
+    await page.waitForSelector('.confirm-box', { timeout: 3000 });
+    await page.waitForTimeout(400);            // let the entrance animation finish
+    await page.screenshot({ path: path.join(SHOTS, '07-confirm.png') });
+    var dialogText = await page.locator('.confirm-body').textContent();
+    if (dialogText.indexOf(warTarget) < 0) fail('confirm dialog did not name the target');
+    await page.click('.confirm-ok');
+    await page.waitForTimeout(200);
+    var atWar = await page.evaluate(function (name) {
+      var s = SWW.game.current;
+      var target = s.nations.filter(function (n) { return n.name === name; })[0];
+      return target ? SWW.state.treaty(s, s.playerId, target.id) : 'missing';
+    }, warTarget);
+    if (atWar !== 'war') fail('confirming the dialog did not declare war (got ' + atWar + ')');
+    else console.log('declared war on ' + warTarget + ' through the confirm dialog');
+    if (await page.locator('.confirm-box').count()) fail('confirm dialog stayed open');
+  }
+  await page.click('#modalClose');
+  await page.waitForTimeout(120);
+
   // Exercise the More tabs.
   await page.click('.nav-btn[data-nav="more"]');
   await page.waitForSelector('#modalBackdrop.show');

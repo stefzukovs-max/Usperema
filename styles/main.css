@@ -453,7 +453,101 @@ input { font: inherit; }
 .help h4:first-child { margin-top: 0; }
 .help p { margin: 0; color: var(--dim); line-height: 1.55; font-size: 13.5px; }
 
+/* Narrow screens: drop the per-day rates so all eight stockpiles fit at once,
+   the way the whole supply situation should read in a single glance. */
+@media (max-width: 560px) {
+  .res-rate { display: none; }
+  .res { padding: 3px 4px; gap: 2px; font-size: 11.5px; }
+  .res-icon { font-size: 12px; }
+  .resource-strip { gap: 2px; }
+}
+
 @media (min-width: 900px) {
   .panel.open { max-height: 46vh; }
   .modal-body { padding: 18px; }
+}
+
+/* ------------------------------------------------------- confirmation box */
+
+.confirm-layer { display: none; }
+/* The layer needs a real box of its own, or it measures as zero-sized even
+   while the fixed-position dialog inside it is plainly on screen. */
+.confirm-layer.show { display: block; position: fixed; inset: 0; z-index: 70; }
+.confirm-backdrop {
+  position: fixed; inset: 0; z-index: 70; display: flex;
+  align-items: center; justify-content: center; padding: 18px;
+  background: rgba(4, 10, 16, .74); backdrop-filter: blur(2px);
+  animation: fadeIn .12s ease-out;
+}
+.confirm-box {
+  width: min(430px, 100%); border-radius: 6px; overflow: hidden;
+  border: 1px solid var(--accent-2);
+  box-shadow: 0 16px 50px rgba(0,0,0,.6);
+  animation: popIn .14s ease-out;
+}
+.confirm-head {
+  background: linear-gradient(180deg, #f4f8fb, #d8e4ec); color: #10222f;
+  font-weight: 700; font-size: 17px; letter-spacing: .07em; text-transform: uppercase;
+  padding: 13px 16px;
+}
+.confirm-body {
+  background: #17293a;
+  padding: 16px; line-height: 1.5; color: var(--text); font-size: 14.5px;
+}
+.confirm-actions {
+  display: flex; gap: 10px; padding: 12px 16px 16px; background: #17293a;
+}
+.confirm-ok, .confirm-cancel {
+  flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px; border-radius: 4px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; font-size: 13px;
+  border: 1px solid var(--accent-2);
+  background: linear-gradient(180deg, #2f7fa3, #1d4f68);
+}
+.confirm-ok.danger { border-color: #e8735c; background: linear-gradient(180deg, #b8483a, #7d2b21); }
+.confirm-cancel { border-color: #6f8ea4; background: linear-gradient(180deg, #35576d, #223d4f); }
+.confirm-ok:hover, .confirm-cancel:hover { filter: brightness(1.12); }
+.confirm-glyph { font-size: 15px; }
+
+@keyframes fadeIn { from { opacity: 0; } }
+@keyframes popIn { from { transform: translateY(10px) scale(.98); opacity: 0; } }
+
+/* ------------------------------------------------------------ army readout */
+
+.readout {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,.07), rgba(255,255,255,.02));
+  border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px;
+}
+.readout-flag {
+  width: 26px; height: 34px; flex: 0 0 auto; border-radius: 2px;
+  border: 1px solid rgba(0,0,0,.5);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 22% 50%);
+}
+.readout-main { flex: 1 1 auto; min-width: 0; }
+.readout-name { font-weight: 700; font-size: 15px; }
+.readout-status { font-size: 12px; color: var(--dim); }
+.readout-hp { min-width: 96px; flex: 0 0 auto; }
+.readout-hp-num { font-size: 12px; color: var(--dim); text-align: right; margin-bottom: 3px; }
+.readout-hp .bar { min-width: 96px; }
+
+.readout-stats {
+  display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px;
+}
+.read-stat {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.07);
+  border-radius: 4px; padding: 5px 9px; font-size: 12.5px;
+}
+.rs-icon { opacity: .82; font-size: 13px; }
+.rs-val { font-weight: 600; }
+
+/* ------------------------------------------------------------------ toasts */
+
+.toast { display: flex; align-items: stretch; gap: 10px; padding: 0; overflow: hidden; }
+.toast-text { padding: 8px 0 8px 11px; flex: 1 1 auto; }
+.toast-time {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.07); padding: 5px 9px; font-size: 10.5px;
+  color: var(--dim); line-height: 1.3; white-space: nowrap; flex: 0 0 auto;
 }
