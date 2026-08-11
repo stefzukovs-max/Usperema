@@ -13,6 +13,19 @@
     ammo: 4000, chemicals: 3900, cash: 53000, gold: 57
   };
 
+  /*
+   * Everyone opens with the same core stockpile so a small nation is playable,
+   * plus a modest bonus scaled to how much territory it actually holds.
+   */
+  function startingResources(nation) {
+    var out = {};
+    var scale = 1 + Math.min(1.4, Math.sqrt(Math.max(1, nation.provinces.length)) * 0.16);
+    for (var k in START_RESOURCES) {
+      out[k] = k === 'gold' ? START_RESOURCES[k] : Math.round(START_RESOURCES[k] * scale);
+    }
+    return out;
+  }
+
   var SPEEDS = [
     { id: 'pause', label: 'Paused', hoursPerSecond: 0 },
     { id: '1x', label: '1x', hoursPerSecond: 1 / 3 },
@@ -28,18 +41,19 @@
 
     var state = {
       seed: String(seed),
-      version: 1,
+      version: 2,
       time: 6,               // start at 06:00 on day 1
       speed: '1x',
-      grid: world.grid,
-      land: world.land,
-      cellOwner: world.cellOwner,
+      mapW: world.mapW,
+      mapH: world.mapH,
+      runs: world.runs,
       provinces: world.provinces,
       landCount: world.landCount,
       nations: world.nations,
       nationById: {},
       armies: [],
       armySeq: 1,
+      armyEpoch: 1,          // bumped whenever an army appears, dies or moves
       log: [],
       market: null,
       playerId: null,
@@ -53,20 +67,18 @@
     for (i = 0; i < state.nations.length; i++) {
       n = state.nations[i];
       state.nationById[n.id] = n;
-      n.resources = Object.assign({}, START_RESOURCES);
+      n.resources = startingResources(n);
       n.research = {};
       n.researching = null;
+      // Relations and treaties are sparse: an absent entry means "neutral" and
+      // "at peace".  With nearly two hundred nations a dense matrix would be
+      // thirty thousand pointless entries in every save.
       n.relations = {};
       n.treaties = {};
       n.income = null;
       n.upkeep = null;
-    }
-    for (i = 0; i < state.nations.length; i++) {
-      for (var j = 0; j < state.nations.length; j++) {
-        if (i === j) continue;
-        state.nations[i].relations[state.nations[j].id] = 0;
-        state.nations[i].treaties[state.nations[j].id] = 'peace';
-      }
+      n.power = 0;
+      n.contacts = [];
     }
 
     // Choose the player's nation.
@@ -78,21 +90,30 @@
     state.nationById[playerId].isPlayer = true;
     state.nationById[playerId].ai = false;
 
-    // Starting garrisons: a real force at the capital, a screen elsewhere.
+    /*
+     * Starting garrisons scale with the country.  A one-province nation cannot
+     * feed a field army, so it opens with a single battalion rather than
+     * starving on day one.
+     */
     for (i = 0; i < state.nations.length; i++) {
       n = state.nations[i];
-      spawnArmy(state, n.id, n.capitalProvince, [{ typeId: 'infantry', count: 3 }]);
-      var owned = n.provinces.slice();
+      var size = n.provinces.length;
+      var capitalStack = size >= 6 ? 3 : size >= 3 ? 2 : 1;
+      spawnArmy(state, n.id, n.capitalProvince, [{ typeId: 'infantry', count: capitalStack }]);
+      var owned = n.provinces.filter(function (id) { return id !== n.capitalProvince; });
       rng.shuffle(owned);
-      var garrisons = Math.min(owned.length, Math.max(1, Math.round(owned.length * 0.45)));
+      var garrisons = Math.round(owned.length * 0.35);
       for (var g = 0; g < garrisons; g++) {
-        spawnArmy(state, n.id, owned[g], [{ typeId: 'infantry', count: rng.int(1, 2) }]);
+        spawnArmy(state, n.id, owned[g], [{ typeId: 'infantry', count: 1 }]);
       }
     }
 
     SWW.market.init(state, rng);
     recomputeVP(state);
-    state.victoryVP = Math.round(state.totalVP * 0.45);
+    // Taking a third of the world's victory points is already a colossal war;
+    // outlasting everyone else is the other way to win.
+    state.victoryVP = Math.round(state.totalVP * 0.33);
+    SWW.diplomacy.refreshContacts(state);
     state.rngState = rng.s;
 
     pushLog(state, 'world', 'The war begins. ' + state.nationById[playerId].name +
@@ -125,6 +146,7 @@
     };
     army.name = defaultArmyName(state, army);
     state.armies.push(army);
+    touchArmies(state);
     return army;
   }
 
@@ -151,29 +173,50 @@
   function province(state, id) { return state.provinces[id]; }
   function nation(state, id) { return state.nationById[id] || null; }
 
-  function armiesIn(state, provinceId) {
-    var out = [];
+  /**
+   * Province id -> armies standing there, rebuilt only when something has
+   * actually changed.  Without it, the per-hour AI and combat passes degrade to
+   * a full scan of every army for every lookup.
+   */
+  function armyIndex(state) {
+    if (state._armyIndexEpoch === state.armyEpoch && state._armyIndex) return state._armyIndex;
+    var index = {};
     for (var i = 0; i < state.armies.length; i++) {
-      if (state.armies[i].provinceId === provinceId && !state.armies[i].path.length) out.push(state.armies[i]);
+      var a = state.armies[i];
+      (index[a.provinceId] || (index[a.provinceId] = [])).push(a);
     }
+    state._armyIndex = index;
+    state._armyIndexEpoch = state.armyEpoch;
+    return index;
+  }
+
+  function touchArmies(state) { state.armyEpoch++; }
+
+  /** Armies holding position in a province (those in transit are excluded). */
+  function armiesIn(state, provinceId) {
+    var here = armyIndex(state)[provinceId];
+    if (!here) return [];
+    var out = [];
+    for (var i = 0; i < here.length; i++) if (!here[i].path.length) out.push(here[i]);
     return out;
   }
 
   /** Includes armies currently in transit out of the province. */
   function allArmiesAt(state, provinceId) {
-    var out = [];
-    for (var i = 0; i < state.armies.length; i++) {
-      if (state.armies[i].provinceId === provinceId) out.push(state.armies[i]);
-    }
-    return out;
+    return armyIndex(state)[provinceId] || [];
   }
 
   function armiesOf(state, nationId) {
-    var out = [];
-    for (var i = 0; i < state.armies.length; i++) {
-      if (state.armies[i].ownerId === nationId) out.push(state.armies[i]);
+    if (state._armiesByNationEpoch !== state.armyEpoch) {
+      var map = {};
+      for (var i = 0; i < state.armies.length; i++) {
+        var a = state.armies[i];
+        (map[a.ownerId] || (map[a.ownerId] = [])).push(a);
+      }
+      state._armiesByNation = map;
+      state._armiesByNationEpoch = state.armyEpoch;
     }
-    return out;
+    return state._armiesByNation[nationId] || [];
   }
 
   function armyById(state, id) {
@@ -210,9 +253,13 @@
     return p;
   }
 
+  /** Cached each hour by the loop; the AI compares it constantly. */
   function nationPower(state, nationId) {
+    var n = state.nationById[nationId];
+    if (n && n.powerEpoch === state.armyEpoch) return n.power;
     var p = 0, list = armiesOf(state, nationId);
     for (var i = 0; i < list.length; i++) p += armyPower(list[i]);
+    if (n) { n.power = p; n.powerEpoch = state.armyEpoch; }
     return p;
   }
 
@@ -257,6 +304,7 @@
     createGame: createGame, spawnArmy: spawnArmy, province: province, nation: nation,
     armiesIn: armiesIn, allArmiesAt: allArmiesAt, armiesOf: armiesOf, armyById: armyById,
     armyStrength: armyStrength, armyPower: armyPower, nationPower: nationPower,
+    armyIndex: armyIndex, touchArmies: touchArmies,
     unitCount: unitCount, treaty: treaty, atWar: atWar, isHostile: isHostile,
     recomputeVP: recomputeVP, pushLog: pushLog, defaultArmyName: defaultArmyName,
     START_RESOURCES: START_RESOURCES, SPEEDS: SPEEDS

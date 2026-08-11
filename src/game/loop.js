@@ -49,6 +49,7 @@
       if (nation.isPlayer) nation.resources.gold += DAILY_GOLD;
     }
     SWW.diplomacy.refreshWarCounts(state);
+    SWW.diplomacy.refreshContacts(state);
     SWW.state.recomputeVP(state);
     checkVictory(state);
   }

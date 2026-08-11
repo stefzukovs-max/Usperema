@@ -48,7 +48,6 @@
     selectedArmyId: null,
     targeting: null,          // 'move' | 'attack' | 'bombard' | 'missile'
     visible: {},
-    visibleStamp: 0,
     lastVisibility: -99,
     lastHud: -99,
     modal: null
@@ -400,11 +399,6 @@
       if (SWW.state.treaty(state, nation.id, other.id) !== 'alliance') continue;
       for (j = 0; j < other.provinces.length; j++) vis[other.provinces[j]] = true;
     }
-    // Cheap signature so the renderer only rebuilds fog when the set moves.
-    var sig = 0, n = 0;
-    for (var id in vis) { sig = (sig ^ (+id * 2654435761)) >>> 0; n++; }
-    var stamp = sig + n * 7919;
-    if (stamp !== this.visibleStamp) this.visibleStamp = stamp;
     this.visible = vis;
   };
 
@@ -759,10 +753,56 @@
       wrap.appendChild(section('Incoming proposals', inbox));
     }
 
+    /*
+     * With every real country on the map, an undifferentiated list of nearly
+     * two hundred rows is useless.  Default to the ones that matter — wars and
+     * neighbours — and let the player search for anyone else.
+     */
     var rows = el('div', { class: 'nation-list' });
-    var others = state.nations.filter(function (n) { return n.id !== me.id && n.alive; })
+    var filters = el('div', { class: 'tabs' });
+    var searchBox = el('input', {
+      class: 'search-input', type: 'search', placeholder: 'Search country',
+      oninput: function () { render(); }
+    });
+    var mode = self.diploFilter || 'relevant';
+
+    [['relevant', 'Wars & neighbours'], ['war', 'At war'], ['treaty', 'Treaties'],
+      ['major', 'Great powers'], ['all', 'All']].forEach(function (row) {
+      filters.appendChild(el('button', {
+        class: 'tab' + (mode === row[0] ? ' active' : ''), text: row[1],
+        onclick: function () { self.diploFilter = row[0]; self.refreshModal(); }
+      }));
+    });
+    wrap.appendChild(section('Powers of the world', el('div', {}, [filters, searchBox, rows])));
+
+    var all = state.nations.filter(function (n) { return n.id !== me.id && n.alive; })
       .sort(function (a, b) { return b.vp - a.vp; });
-    others.forEach(function (n) {
+
+    function visibleNations() {
+      var q = searchBox.value.trim().toLowerCase();
+      if (q) return all.filter(function (n) { return n.name.toLowerCase().indexOf(q) >= 0; });
+      var contacts = me.contactSet || {};
+      return all.filter(function (n) {
+        var t = SWW.state.treaty(state, me.id, n.id);
+        if (mode === 'all') return true;
+        if (mode === 'war') return t === 'war';
+        if (mode === 'treaty') return t === 'nap' || t === 'alliance';
+        if (mode === 'major') return true;
+        return t !== 'peace' || contacts[n.id];
+      }).slice(0, mode === 'major' ? 20 : 400);
+    }
+
+    function render() {
+      SWW.clearNode(rows);
+      var list = visibleNations();
+      if (!list.length) {
+        rows.appendChild(el('div', { class: 'muted small', text: 'Nobody here. Try another filter or search by name.' }));
+        return;
+      }
+      list.forEach(renderNation);
+    }
+
+    function renderNation(n) {
       var rel = SWW.diplomacy.relation(state, me.id, n.id);
       var treaty = SWW.state.treaty(state, me.id, n.id);
       var neighbour = SWW.diplomacy.areNeighbours(state, me.id, n.id);
@@ -830,8 +870,9 @@
         ]),
         actions
       ]));
-    });
-    wrap.appendChild(section('Powers of the world', rows));
+    }
+
+    render();
     return wrap;
   };
 

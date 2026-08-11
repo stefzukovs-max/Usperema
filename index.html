@@ -29,7 +29,10 @@
       <button id="continueBtn" class="secondary-btn" style="display:none">Continue</button>
     </div>
 
-    <h2 class="menu-heading">Choose your nation</h2>
+    <div class="menu-heading-row">
+      <h2 class="menu-heading">Choose your nation<span id="nationCount" class="menu-count"></span></h2>
+      <input id="nationSearch" class="search-input" type="search" placeholder="Search country or capital" autocomplete="off">
+    </div>
     <div id="nationGrid" class="nation-grid"></div>
   </div>
 </div>
@@ -109,18 +112,18 @@
 
 <script src="src/engine/rng.js"></script>
 <script src="src/engine/util.js"></script>
-<script src="src/data/landmask.js"></script>
-<script src="src/data/nations.js"></script>
+<script src="src/data/worldmap.js"></script>
 <script src="src/data/units.js"></script>
 <script src="src/data/buildings.js"></script>
 <script src="src/data/research.js"></script>
+<script src="src/engine/mapdata.js"></script>
 <script src="src/engine/worldgen.js"></script>
 <script src="src/game/market.js"></script>
+<script src="src/game/diplomacy.js"></script>
 <script src="src/game/state.js"></script>
 <script src="src/game/economy.js"></script>
 <script src="src/game/combat.js"></script>
 <script src="src/game/orders.js"></script>
-<script src="src/game/diplomacy.js"></script>
 <script src="src/game/ai.js"></script>
 <script src="src/game/loop.js"></script>
 <script src="src/game/save.js"></script>

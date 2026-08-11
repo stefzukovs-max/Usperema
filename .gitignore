@@ -1,4 +1,5 @@
 node_modules/
+tools/geodata/
 tools/shots/*.png
-!tools/shots/06-desktop.png
+!tools/shots/world-map.png
 .DS_Store

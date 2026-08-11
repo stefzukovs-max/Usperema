@@ -1,208 +1,137 @@
 /*
- * World generation.
+ * World setup.
  *
- * 1. Upsample the coarse land mask into a playable grid with smoothed,
- *    slightly ragged coastlines.
- * 2. Scatter province seeds and grow them with a multi-source BFS, so every
- *    province is a contiguous blob that never spans two landmasses.
- * 3. Do the same for the ocean, producing sea zones that use the same graph.
- * 4. Grow nations outward from the province nearest each real capital.
+ * The geography — borders, provinces, adjacency, names, population — is fixed
+ * and comes from the compiled map.  This module layers the per-game, seeded
+ * parts on top: climate and terrain, which deposit each province works, how
+ * developed it is, and the roster of nations with their starting temperaments.
  */
 (function (global) {
   'use strict';
 
   var SWW = global.SWW = global.SWW || {};
-  var LandMask = SWW.LandMask;
-  var NationData = SWW.NationData;
   var clamp = SWW.util.clamp;
-
-  var GW = 256;   // grid columns (360 degrees of longitude)
-  var GH = 128;   // grid rows (180 degrees of latitude)
 
   var TERRAIN = {
     plains: { name: 'Plains', def: 1.00, speed: 1.00, color: '#5d7a4a' },
+    farmland: { name: 'Farmland', def: 0.95, speed: 1.05, color: '#7d8f4a' },
     forest: { name: 'Forest', def: 1.15, speed: 0.85, color: '#3f6138' },
     jungle: { name: 'Jungle', def: 1.20, speed: 0.65, color: '#2f6b3c' },
     desert: { name: 'Desert', def: 0.95, speed: 0.95, color: '#a89258' },
+    steppe: { name: 'Steppe', def: 1.00, speed: 1.00, color: '#8d9455' },
     tundra: { name: 'Tundra', def: 1.05, speed: 0.75, color: '#6f8577' },
-    mountain: { name: 'Mountains', def: 1.40, speed: 0.55, color: '#7a7568' }
+    taiga: { name: 'Taiga', def: 1.12, speed: 0.80, color: '#41604d' },
+    mountain: { name: 'Mountains', def: 1.40, speed: 0.55, color: '#7a7568' },
+    urban: { name: 'Urban', def: 1.30, speed: 0.90, color: '#6e6f72' },
+    sea: { name: 'Open water', def: 1.00, speed: 1.00, color: '#12283d' }
   };
 
-  function cellLat(y) { return 90 - (y + 0.5) * (180 / GH); }
-  function cellLon(x) { return -180 + (x + 0.5) * (360 / GW); }
-  function lonToX(lon) { return clamp(Math.floor((lon + 180) / 360 * GW), 0, GW - 1); }
-  function latToY(lat) { return clamp(Math.floor((90 - lat) / 180 * GH), 0, GH - 1); }
-
-  /** Smooth value noise on the grid, used to rough up coastlines and biomes. */
-  function valueNoise(rng, w, h, scale) {
-    var cw = Math.ceil(w / scale) + 2, ch = Math.ceil(h / scale) + 2;
-    var g = new Float32Array(cw * ch);
-    for (var i = 0; i < g.length; i++) g[i] = rng.next();
-    var out = new Float32Array(w * h);
-    for (var y = 0; y < h; y++) {
-      var gy = y / scale, y0 = Math.floor(gy), ty = gy - y0;
-      ty = ty * ty * (3 - 2 * ty);
-      for (var x = 0; x < w; x++) {
-        var gx = x / scale, x0 = Math.floor(gx), tx = gx - x0;
-        tx = tx * tx * (3 - 2 * tx);
-        var a = g[y0 * cw + x0], b = g[y0 * cw + x0 + 1];
-        var c = g[(y0 + 1) * cw + x0], d = g[(y0 + 1) * cw + x0 + 1];
-        out[y * w + x] = (a + (b - a) * tx) + ((c + (d - c) * tx) - (a + (b - a) * tx)) * ty;
-      }
-    }
-    return out;
-  }
-
-  /** Bilinear upsample of the coarse mask, then threshold with noise. */
-  function buildLandMask(rng) {
-    var src = LandMask.baseField();
-    var sw = LandMask.COLS, sh = LandMask.ROWS;
-    var coverage = new Float32Array(GW * GH);
-    for (var y = 0; y < GH; y++) {
-      var fy = (y + 0.5) / GH * sh - 0.5;
-      var y0 = clamp(Math.floor(fy), 0, sh - 1), y1 = clamp(y0 + 1, 0, sh - 1);
-      var ty = clamp(fy - y0, 0, 1);
-      for (var x = 0; x < GW; x++) {
-        var fx = (x + 0.5) / GW * sw - 0.5;
-        var x0 = clamp(Math.floor(fx), 0, sw - 1), x1 = clamp(x0 + 1, 0, sw - 1);
-        var tx = clamp(fx - x0, 0, 1);
-        var a = src[y0 * sw + x0], b = src[y0 * sw + x1];
-        var c = src[y1 * sw + x0], d = src[y1 * sw + x1];
-        var top = a + (b - a) * tx, bot = c + (d - c) * tx;
-        coverage[y * GW + x] = top + (bot - top) * ty;
-      }
-    }
-    var noise = valueNoise(rng, GW, GH, 7);
-    var land = new Uint8Array(GW * GH);
-    for (var i = 0; i < land.length; i++) {
-      // Threshold near 0.5 so the coast wanders instead of following the
-      // coarse grid; noise contributes only in the transition band.
-      var v = coverage[i] + (noise[i] - 0.5) * 0.34;
-      land[i] = v > 0.5 ? 1 : 0;
-    }
-    // Remove single-cell specks and fill single-cell holes.
-    var cleaned = new Uint8Array(land);
-    for (var yy = 1; yy < GH - 1; yy++) {
-      for (var xx = 1; xx < GW - 1; xx++) {
-        var idx = yy * GW + xx, n = 0;
-        n += land[idx - 1] + land[idx + 1] + land[idx - GW] + land[idx + GW];
-        if (land[idx] === 1 && n === 0) cleaned[idx] = 0;
-        if (land[idx] === 0 && n === 4) cleaned[idx] = 1;
-      }
-    }
-    return cleaned;
-  }
-
-  /** Greedy dart-throwing: seeds at least `minDist` apart, in shuffled order. */
-  function scatterSeeds(rng, cells, target) {
-    if (cells.length === 0) return [];
-    // Dart throwing packs at roughly 70% efficiency, so aim tighter than the
-    // ideal spacing to land near the requested province count.
-    var minDist = Math.sqrt(cells.length / target) * 0.86;
-    var minDist2 = minDist * minDist;
-    var order = rng.shuffle(cells.slice());
-    var seeds = [];
-    // Bucket accepted seeds so the distance test stays local.
-    var bs = Math.max(1, Math.floor(minDist));
-    var bw = Math.ceil(GW / bs), bh = Math.ceil(GH / bs);
-    var buckets = new Array(bw * bh);
-    for (var i = 0; i < order.length && seeds.length < target; i++) {
-      var idx = order[i];
-      var x = idx % GW, y = (idx / GW) | 0;
-      var bx = (x / bs) | 0, by = (y / bs) | 0, ok = true;
-      for (var dy = -1; dy <= 1 && ok; dy++) {
-        for (var dx = -1; dx <= 1 && ok; dx++) {
-          var nx = bx + dx, ny = by + dy;
-          if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
-          var list = buckets[ny * bw + nx];
-          if (!list) continue;
-          for (var k = 0; k < list.length; k++) {
-            var ox = list[k] % GW, oy = (list[k] / GW) | 0;
-            var ddx = ox - x, ddy = oy - y;
-            if (ddx * ddx + ddy * ddy < minDist2) { ok = false; break; }
-          }
-        }
-      }
-      if (!ok) continue;
-      seeds.push(idx);
-      var b = by * bw + bx;
-      if (!buckets[b]) buckets[b] = [];
-      buckets[b].push(idx);
-    }
-    return seeds;
-  }
-
-  /**
-   * Grow regions from seeds using breadth-first expansion restricted to cells
-   * of the same kind.  Equal-speed growth from all seeds gives compact,
-   * contiguous regions.
+  /*
+   * Real-world climate and relief, described as longitude/latitude boxes.
+   * Coarse, but it puts the Sahara, the Amazon, the Himalaya and Siberia
+   * where players expect to find them.
    */
-  function growRegions(seeds, passable, owner, startId) {
-    var head = 0;
-    var queue = seeds.slice();
-    for (var i = 0; i < seeds.length; i++) owner[seeds[i]] = startId + i;
-    while (head < queue.length) {
-      var idx = queue[head++];
-      var id = owner[idx];
-      var x = idx % GW, y = (idx / GW) | 0;
-      var cand = [];
-      if (x > 0) cand.push(idx - 1);
-      if (x < GW - 1) cand.push(idx + 1);
-      if (y > 0) cand.push(idx - GW);
-      if (y < GH - 1) cand.push(idx + GW);
-      for (var ci = 0; ci < cand.length; ci++) {
-        var n = cand[ci];
-        if (owner[n] !== -1 || !passable[n]) continue;
-        owner[n] = id;
-        queue.push(n);
-      }
+  function box(lon0, lat0, lon1, lat1) { return [lon0, lat0, lon1, lat1]; }
+
+  var MOUNTAINS = [
+    box(-125, 32, -105, 60),    // Rockies
+    box(-79, -55, -66, 10),     // Andes
+    box(5, 43, 16, 48),         // Alps
+    box(36, 38, 50, 44),        // Caucasus
+    box(55, 25, 75, 40),        // Zagros / Hindu Kush
+    box(72, 26, 96, 40),        // Himalaya and Tibet
+    box(58, 50, 68, 68),        // Urals
+    box(85, 42, 110, 55),       // Altai and Sayan
+    box(125, 33, 142, 45),      // Japanese ranges
+    box(28, -3, 40, 12),        // Ethiopian highlands
+    box(-8, 28, 10, 36),        // Atlas
+    box(166, -46, 175, -40)     // Southern Alps
+  ];
+
+  var DESERTS = [
+    box(-17, 15, 34, 31),       // Sahara
+    box(34, 13, 60, 32),        // Arabian
+    box(44, 35, 62, 46),        // Karakum and Kyzylkum
+    box(68, 23, 76, 30),        // Thar
+    box(88, 36, 112, 48),       // Gobi and Taklamakan
+    box(-118, 24, -103, 40),    // Sonoran, Mojave, Great Basin
+    box(-72, -30, -66, -18),    // Atacama
+    box(-71, -50, -64, -34),    // Patagonian
+    box(113, -32, 143, -20),    // Australian interior
+    box(11, -28, 25, -18)       // Namib and Kalahari
+  ];
+
+  var JUNGLES = [
+    box(-78, -14, -46, 6),      // Amazon
+    box(8, -6, 31, 6),          // Congo
+    box(-92, 7, -77, 18),       // Central America
+    box(-16, 4, 12, 11),        // West African coast
+    box(72, 5, 108, 24),        // South and South-East Asia
+    box(95, -11, 155, 8),       // Indonesia and New Guinea
+    box(42, -26, 50, -12)       // Madagascar
+  ];
+
+  var STEPPES = [
+    box(-108, 30, -95, 50),     // Great Plains
+    box(28, 44, 90, 56),        // Pontic-Caspian and Kazakh steppe
+    box(100, 40, 122, 50),      // Mongolian steppe
+    box(-66, -40, -56, -28),    // Pampas
+    box(18, -30, 32, -22)       // Highveld
+  ];
+
+  function inAny(boxes, lon, lat) {
+    for (var i = 0; i < boxes.length; i++) {
+      var b = boxes[i];
+      if (lon >= b[0] && lon <= b[2] && lat >= b[1] && lat <= b[3]) return true;
     }
-    // Any cell the BFS could not reach (an island with no seed) becomes its
-    // own region so no playable cell is orphaned.
-    var extra = 0;
-    for (var c = 0; c < owner.length; c++) {
-      if (passable[c] && owner[c] === -1) {
-        var newId = startId + seeds.length + extra; extra++;
-        var q2 = [c]; owner[c] = newId;
-        var h2 = 0;
-        while (h2 < q2.length) {
-          var p = q2[h2++];
-          var px = p % GW, py = (p / GW) | 0;
-          var ns = [];
-          if (px > 0) ns.push(p - 1);
-          if (px < GW - 1) ns.push(p + 1);
-          if (py > 0) ns.push(p - GW);
-          if (py < GH - 1) ns.push(p + GW);
-          for (var m = 0; m < ns.length; m++) {
-            if (owner[ns[m]] === -1 && passable[ns[m]]) { owner[ns[m]] = newId; q2.push(ns[m]); }
-          }
-        }
-      }
-    }
-    return seeds.length + extra;
+    return false;
   }
 
-  function pickTerrain(rng, lat, noiseV, coastRatio) {
+  function pickTerrain(rng, lon, lat, prov) {
     var a = Math.abs(lat);
-    if (rng.next() < 0.16) return 'mountain';
-    if (a > 62) return 'tundra';
-    if (a > 15 && a < 34 && noiseV > 0.45 && coastRatio < 0.5) return 'desert';
-    if (a < 12 && noiseV > 0.35) return 'jungle';
-    if (a > 42 && noiseV > 0.42) return 'forest';
-    return noiseV > 0.66 ? 'forest' : 'plains';
+    // Dense cities read as urban regardless of the surrounding climate.
+    if (prov.topCity >= 3000) return 'urban';
+    if (inAny(MOUNTAINS, lon, lat) && rng.chance(0.62)) return 'mountain';
+    if (rng.chance(0.05)) return 'mountain';
+    if (inAny(DESERTS, lon, lat) && rng.chance(0.85)) return 'desert';
+    if (inAny(JUNGLES, lon, lat) && rng.chance(0.8)) return 'jungle';
+    if (inAny(STEPPES, lon, lat) && rng.chance(0.7)) return 'steppe';
+    if (a >= 69) return 'tundra';
+    if (a >= 55) return rng.chance(0.7) ? 'taiga' : 'tundra';
+    if (a >= 45) return rng.chance(0.5) ? 'forest' : 'farmland';
+    if (a >= 30) return rng.chance(0.45) ? 'farmland' : (rng.chance(0.5) ? 'forest' : 'plains');
+    if (a >= 12) return rng.chance(0.4) ? 'plains' : 'farmland';
+    return rng.chance(0.5) ? 'jungle' : 'plains';
   }
 
   var DEPOSIT_WEIGHTS = {
     plains: { food: 6, materials: 2, fuel: 1, chemicals: 1 },
+    farmland: { food: 9, materials: 1, fuel: 1, chemicals: 1 },
     forest: { food: 3, materials: 6, fuel: 1, chemicals: 1 },
+    taiga: { food: 2, materials: 6, fuel: 3, chemicals: 1 },
     jungle: { food: 3, materials: 2, fuel: 1, chemicals: 5 },
-    desert: { food: 1, materials: 2, fuel: 6, chemicals: 3 },
-    tundra: { food: 1, materials: 3, fuel: 5, chemicals: 2 },
-    mountain: { food: 1, materials: 6, fuel: 2, chemicals: 4 }
+    desert: { food: 1, materials: 2, fuel: 7, chemicals: 3 },
+    steppe: { food: 5, materials: 2, fuel: 3, chemicals: 1 },
+    tundra: { food: 1, materials: 3, fuel: 6, chemicals: 2 },
+    mountain: { food: 1, materials: 7, fuel: 2, chemicals: 4 },
+    urban: { food: 2, materials: 5, fuel: 2, chemicals: 4 }
   };
 
-  function pickDeposit(rng, terrain) {
-    var w = DEPOSIT_WEIGHTS[terrain];
+  /* Real oil provinces get oil, because a fuel map that ignores the Gulf is a
+   * strange kind of realism. */
+  var OIL = [
+    box(35, 20, 58, 34),        // Gulf
+    box(45, 45, 78, 68),        // West Siberia and the Caspian
+    box(-100, 25, -88, 33),     // Texas and the Gulf of Mexico
+    box(-72, 4, -60, 12),       // Venezuela
+    box(0, 3, 10, 8),           // Niger delta
+    box(10, 25, 30, 33),        // Libya and Algeria
+    box(-120, 55, -105, 62)     // Alberta
+  ];
+
+  function pickDeposit(rng, terrain, lon, lat) {
+    if (inAny(OIL, lon, lat) && rng.chance(0.7)) return 'fuel';
+    var w = DEPOSIT_WEIGHTS[terrain] || DEPOSIT_WEIGHTS.plains;
     var total = 0, k;
     for (k in w) total += w[k];
     var roll = rng.next() * total;
@@ -210,229 +139,152 @@
     return 'food';
   }
 
-  function makeName(rng, region) {
-    var s = NationData.SYLLABLES[region] || NationData.SYLLABLES.anglo;
-    var a = rng.pick(s.a), b = rng.pick(s.b);
-    return a + b;
+  function cityLevelFor(topCity) {
+    if (topCity >= 5000) return 5;
+    if (topCity >= 1500) return 4;
+    if (topCity >= 500) return 3;
+    if (topCity >= 120) return 2;
+    return 1;
   }
 
-  function makeSeaName(rng) {
-    return rng.pick(NationData.SEA_PREFIX) + ' ' + rng.pick(NationData.SEA_SUFFIX);
+  /*
+   * Real populations span four orders of magnitude, which would make the
+   * economy unplayable. This compresses them: a densely populated province is
+   * worth a lot more than an empty one, but not a thousand times more.
+   */
+  function gamePop(prov) {
+    var people = prov.people;                      // thousands
+    var fromPeople = Math.pow(people, 0.45) * 2.4;
+    var fromLand = Math.sqrt(prov.size) * 0.6;
+    return clamp(Math.round(fromPeople + fromLand), 8, 260);
   }
 
   /**
-   * @param {SWW.RNG} rng
-   * @param {{landProvinces:number, seaZones:number}} opts
+   * Build the per-game world.  Geometry is shared with every other game; only
+   * the mutable, seeded fields are fresh.
    */
-  function generate(rng, opts) {
-    opts = opts || {};
-    var targetLand = opts.landProvinces || 220;
-    var targetSea = opts.seaZones || 70;
+  function generate(rng) {
+    var map = SWW.mapdata.load();
+    var provinces = new Array(map.provinceCount);
+    var i;
 
-    var land = buildLandMask(rng);
-    var landCells = [], seaCells = [];
-    for (var i = 0; i < land.length; i++) (land[i] ? landCells : seaCells).push(i);
-
-    var owner = new Int32Array(GW * GH).fill(-1);
-    var landPassable = land;
-    var seaPassable = new Uint8Array(land.length);
-    for (var j = 0; j < land.length; j++) seaPassable[j] = land[j] ? 0 : 1;
-
-    var landSeeds = scatterSeeds(rng, landCells, targetLand);
-    var nLand = growRegions(landSeeds, landPassable, owner, 0);
-    var seaSeeds = scatterSeeds(rng, seaCells, targetSea);
-    var nSea = growRegions(seaSeeds, seaPassable, owner, nLand);
-
-    var count = nLand + nSea;
-    var provinces = new Array(count);
-    for (var p = 0; p < count; p++) {
-      provinces[p] = {
-        id: p, isSea: p >= nLand, name: '', cells: [],
-        sumX: 0, sumY: 0, cx: 0, cy: 0, lat: 0, lon: 0,
-        size: 0, coastCells: 0, coastal: false,
-        neighbors: [], terrain: 'plains', deposit: null,
-        nationId: null, isCapital: false,
-        pop: 0, cityLevel: 0, vp: 0, morale: 100,
-        buildings: {}, construction: null, queue: []
+    for (i = 0; i < map.provinceCount; i++) {
+      var src = map.provinces[i];
+      var lon = SWW.mapdata.lonAt(src.cx);
+      var lat = SWW.mapdata.latAt(src.cy);
+      var prov = {
+        id: i,
+        isSea: src.isSea,
+        name: src.name,
+        cx: src.cx, cy: src.cy,
+        lon: lon, lat: lat,
+        bbox: src.bbox,
+        size: src.size,
+        coastal: src.coastal,
+        neighbors: src.neighbors,
+        loops: src.loops,
+        nationId: null,
+        isCapital: false,
+        terrain: 'sea',
+        deposit: null,
+        people: src.people,
+        pop: 0,
+        cityLevel: 0,
+        vp: 0,
+        morale: 100,
+        unrest: 0,
+        supplyDist: 0,
+        buildings: {},
+        construction: null,
+        queue: [],
+        capture: null
       };
+      if (!src.isSea) {
+        prov.terrain = pickTerrain(rng, lon, lat, src);
+        prov.deposit = pickDeposit(rng, prov.terrain, lon, lat);
+        prov.cityLevel = cityLevelFor(src.topCity);
+        prov.pop = gamePop(src);
+        prov.vp = 3 + prov.cityLevel * 3;
+      }
+      provinces[i] = prov;
     }
 
-    var neighborSets = new Array(count);
-    for (var q = 0; q < count; q++) neighborSets[q] = Object.create(null);
-
-    for (var c2 = 0; c2 < owner.length; c2++) {
-      var id = owner[c2];
-      if (id < 0) continue;
-      var pr = provinces[id];
-      pr.cells.push(c2);
-      var x = c2 % GW, y = (c2 / GW) | 0;
-      pr.sumX += x; pr.sumY += y; pr.size++;
-      var isLandCell = land[c2] === 1;
-      var neigh = [];
-      if (x > 0) neigh.push(c2 - 1);
-      if (x < GW - 1) neigh.push(c2 + 1);
-      if (y > 0) neigh.push(c2 - GW);
-      if (y < GH - 1) neigh.push(c2 + GW);
-      for (var n2 = 0; n2 < neigh.length; n2++) {
-        var oid = owner[neigh[n2]];
-        if (oid < 0 || oid === id) continue;
-        neighborSets[id][oid] = true;
-        if (isLandCell && land[neigh[n2]] === 0) pr.coastCells++;
-      }
-      if (x === 0 || x === GW - 1 || y === 0 || y === GH - 1) {
-        if (isLandCell) pr.coastCells++;
-      }
-    }
-
-    var biome = valueNoise(rng, GW, GH, 11);
-
-    for (var pi = 0; pi < count; pi++) {
-      var prov = provinces[pi];
-      if (prov.size === 0) continue;
-      prov.cx = prov.sumX / prov.size;
-      prov.cy = prov.sumY / prov.size;
-      prov.lat = cellLat(prov.cy);
-      prov.lon = cellLon(prov.cx);
-      prov.neighbors = Object.keys(neighborSets[pi]).map(Number);
-      prov.coastal = prov.coastCells > 0;
-      if (prov.isSea) {
-        prov.name = makeSeaName(rng);
-        prov.terrain = 'sea';
-        continue;
-      }
-      var nv = biome[(Math.round(prov.cy) | 0) * GW + (Math.round(prov.cx) | 0)] || 0.5;
-      prov.terrain = pickTerrain(rng, prov.lat, nv, prov.coastCells / Math.max(1, prov.size));
-      prov.deposit = pickDeposit(rng, prov.terrain);
-      prov.cityLevel = rng.int(1, 3);
-      if (rng.chance(0.15)) prov.cityLevel = 4;
-      var habitability = prov.terrain === 'tundra' ? 0.35
-        : prov.terrain === 'desert' ? 0.45
-          : prov.terrain === 'mountain' ? 0.55 : 1.0;
-      prov.pop = Math.round(prov.size * rng.range(0.7, 1.5) * habitability * (0.7 + 0.22 * prov.cityLevel));
-      prov.vp = 4 + prov.cityLevel * 3;
-    }
-
-    // --- Nations -----------------------------------------------------------
+    // --- nations ----------------------------------------------------------
     var nations = [];
-    var claimed = {};
-    var defs = NationData.NATIONS;
-    for (var d = 0; d < defs.length; d++) {
-      var def = defs[d];
-      var tx = lonToX(def.lon), ty = latToY(def.lat);
-      var best = -1, bestD = Infinity;
-      for (var s = 0; s < nLand; s++) {
-        var pv = provinces[s];
-        if (pv.size === 0 || claimed[s]) continue;
-        var dx = pv.cx - tx, dy = pv.cy - ty;
-        var dd = dx * dx + dy * dy;
-        if (dd < bestD) { bestD = dd; best = s; }
-      }
-      if (best < 0) continue;
+    for (i = 0; i < map.nations.length; i++) {
+      var row = map.nations[i];
+      var capital = provinces[row.capital];
+      if (!capital || capital.isSea) continue;
       var nation = {
-        id: def.id, name: def.name, adj: def.adj, color: def.color, region: def.region,
-        aggression: def.aggression, isPlayer: false, alive: true, ai: true,
-        capitalProvince: best, capitalName: def.capital,
-        provinces: [], resources: null, research: {}, researching: null,
-        relations: {}, treaties: {}, morale: 100, vp: 0, defeatedAt: null
+        id: row.iso,
+        name: row.name,
+        color: row.colour,
+        isPlayer: false,
+        alive: true,
+        ai: true,
+        capitalProvince: row.capital,
+        capitalName: capital.name,
+        provinces: [],
+        // Temperament varies per game, nudged up for the larger powers so the
+        // world does not settle into a stalemate.
+        aggression: 0,
+        resources: null,
+        research: {},
+        researching: null,
+        relations: {},
+        treaties: {},
+        vp: 0,
+        warCount: 0,
+        defeatedAt: null
       };
-      claimed[best] = true;
-      provinces[best].nationId = def.id;
-      provinces[best].isCapital = true;
-      provinces[best].name = def.capital;
-      provinces[best].cityLevel = 5;
-      provinces[best].pop = Math.round(provinces[best].pop * 1.6) + 40;
-      provinces[best].vp = 4 + 5 * 3 + 25;
       nations.push(nation);
     }
 
-    /*
-     * Grow nations one province at a time, round-robin, until each reaches its
-     * target size.  Taking turns keeps contested borders fair, and stopping at
-     * a province count (rather than a ring depth) leaves a predictable amount
-     * of unclaimed land to fight over in the opening days.
-     */
-    var reachOf = {};
-    for (var nj = 0; nj < defs.length; nj++) reachOf[defs[nj].id] = defs[nj].reach;
-    var held = {};
-    for (var ni = 0; ni < nations.length; ni++) held[nations[ni].id] = [nations[ni].capitalProvince];
+    var byIndex = {};
+    for (i = 0; i < map.nations.length; i++) byIndex[i] = map.nations[i].iso;
 
-    var growing = true;
-    while (growing) {
-      growing = false;
-      for (var nk = 0; nk < nations.length; nk++) {
-        var nat = nations[nk];
-        var mine = held[nat.id];
-        if (mine.length >= reachOf[nat.id]) continue;
-        // Prefer the unclaimed neighbour closest to the capital so nations
-        // stay compact instead of sprouting tendrils.
-        var cap = provinces[nat.capitalProvince];
-        var pick = null, pickD = Infinity;
-        for (var f = 0; f < mine.length; f++) {
-          var nb = provinces[mine[f]].neighbors;
-          for (var g = 0; g < nb.length; g++) {
-            var cand = provinces[nb[g]];
-            if (cand.isSea || cand.nationId !== null || cand.size === 0) continue;
-            var ddx = cand.cx - cap.cx, ddy = cand.cy - cap.cy;
-            var d2 = ddx * ddx + ddy * ddy;
-            if (d2 < pickD) { pickD = d2; pick = cand; }
-          }
-        }
-        if (!pick) continue;
-        pick.nationId = nat.id;
-        mine.push(pick.id);
-        growing = true;
-      }
+    for (i = 0; i < map.provinceCount; i++) {
+      var p = provinces[i];
+      if (p.isSea) continue;
+      var iso = byIndex[map.provinces[i].nationIndex];
+      if (iso === undefined) continue;               // disputed ground stays neutral
+      p.nationId = iso;
     }
 
-    for (var pz = 0; pz < nLand; pz++) {
-      var pp = provinces[pz];
-      if (pp.size === 0) continue;
-      if (pp.nationId) {
-        var owner2 = null;
-        for (var nn = 0; nn < nations.length; nn++) if (nations[nn].id === pp.nationId) owner2 = nations[nn];
-        if (owner2) owner2.provinces.push(pp.id);
-        if (!pp.name) pp.name = makeName(rng, owner2 ? owner2.region : 'anglo');
-      } else {
-        // Neutral territory: name it after whichever culture is nearest.
-        var nearest = null, nd = Infinity;
-        for (var nm = 0; nm < nations.length; nm++) {
-          var cp = provinces[nations[nm].capitalProvince];
-          var ddx = cp.cx - pp.cx, ddy = cp.cy - pp.cy;
-          var dist = ddx * ddx + ddy * ddy;
-          if (dist < nd) { nd = dist; nearest = nations[nm]; }
-        }
-        pp.name = makeName(rng, nearest ? nearest.region : 'anglo');
-      }
+    var nationById = {};
+    for (i = 0; i < nations.length; i++) nationById[nations[i].id] = nations[i];
+    for (i = 0; i < map.provinceCount; i++) {
+      var pr = provinces[i];
+      if (pr.isSea || !pr.nationId) continue;
+      var owner = nationById[pr.nationId];
+      if (!owner) { pr.nationId = null; continue; }
+      owner.provinces.push(i);
     }
 
-    // Deduplicate names so the province list stays unambiguous.
-    var used = Object.create(null);
-    for (var pu = 0; pu < count; pu++) {
-      var pn = provinces[pu];
-      if (pn.size === 0) continue;
-      var base = pn.name, tries = 2;
-      while (used[pn.name]) { pn.name = base + ' ' + roman(tries); tries++; }
-      used[pn.name] = true;
+    // Capitals: bigger, better defended, worth taking.
+    for (i = 0; i < nations.length; i++) {
+      var n = nations[i];
+      if (!n.provinces.length) { n.alive = false; continue; }
+      if (n.provinces.indexOf(n.capitalProvince) < 0) n.capitalProvince = n.provinces[0];
+      var cap = provinces[n.capitalProvince];
+      cap.isCapital = true;
+      cap.cityLevel = Math.max(cap.cityLevel, 4);
+      cap.pop = Math.round(cap.pop * 1.25);
+      cap.vp = 3 + cap.cityLevel * 3 + 20;
+      var weight = clamp(n.provinces.length / 12, 0, 1);
+      n.aggression = clamp(rng.range(0.22, 0.62) + weight * 0.18, 0.15, 0.85);
     }
+    nations = nations.filter(function (x) { return x.alive; });
 
     return {
-      grid: { w: GW, h: GH },
-      land: land,
-      cellOwner: owner,
+      mapW: map.mapW,
+      mapH: map.mapH,
       provinces: provinces,
       nations: nations,
-      landCount: nLand,
-      seaCount: nSea
+      landCount: map.landProvinceCount,
+      runs: map.runs
     };
   }
 
-  function roman(n) {
-    var map = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
-    return map[n] || String(n);
-  }
-
-  SWW.worldgen = {
-    generate: generate, GW: GW, GH: GH, TERRAIN: TERRAIN,
-    cellLat: cellLat, cellLon: cellLon, lonToX: lonToX, latToY: latToY
-  };
+  SWW.worldgen = { generate: generate, TERRAIN: TERRAIN, gamePop: gamePop, cityLevelFor: cityLevelFor };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

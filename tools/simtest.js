@@ -16,18 +16,18 @@ var ROOT = path.join(__dirname, '..');
 var FILES = [
   'src/engine/rng.js',
   'src/engine/util.js',
-  'src/data/landmask.js',
-  'src/data/nations.js',
+  'src/data/worldmap.js',
   'src/data/units.js',
   'src/data/buildings.js',
   'src/data/research.js',
+  'src/engine/mapdata.js',
   'src/engine/worldgen.js',
+  'src/game/diplomacy.js',
   'src/game/market.js',
   'src/game/state.js',
   'src/game/economy.js',
   'src/game/combat.js',
   'src/game/orders.js',
-  'src/game/diplomacy.js',
   'src/game/ai.js',
   'src/game/loop.js',
   'src/game/save.js'
@@ -63,10 +63,13 @@ function check(label, cond, detail) {
 
 var days = Number(process.argv[2] || 40);
 var seed = process.argv[3] || 'smoke-1';
+// A fixed mid-sized nation keeps runs comparable. The "player" never acts, so
+// a tiny country would simply be overrun and cut the run short.
+var playerNation = process.argv[4] || 'TUR';
 
 console.log('Generating world (seed "' + seed + '")...');
 var t0 = Date.now();
-var state = SWW.state.createGame({ seed: seed });
+var state = SWW.state.createGame({ seed: seed, playerNation: playerNation });
 var genMs = Date.now() - t0;
 
 var land = 0, sea = 0, owned = 0, neutral = 0, orphan = 0;
@@ -85,6 +88,18 @@ console.log('  world: ' + land + ' land provinces, ' + sea + ' sea zones, ' +
 console.log('  nations: ' + state.nations.length + ', player = ' + state.playerId);
 console.log('  armies at start: ' + state.armies.length + ', total VP ' + state.totalVP +
   ', victory at ' + state.victoryVP);
+
+// The map is real geography, so these must hold on every seed.
+var KNOWN = { FRA: 'Paris', JPN: 'Tokyo', EGY: 'Cairo', BRA: 'Brasília', AUS: 'Canberra' };
+Object.keys(KNOWN).forEach(function (iso) {
+  var nat = state.nationById[iso];
+  if (!nat) { check('nation ' + iso + ' exists', false); return; }
+  var cap = state.provinces[nat.capitalProvince];
+  check('nation ' + iso + ' holds its capital', cap && cap.nationId === iso,
+    cap ? cap.name + ' owned by ' + cap.nationId : 'missing');
+});
+check('France is called France', state.nationById.FRA && state.nationById.FRA.name === 'France',
+  state.nationById.FRA && state.nationById.FRA.name);
 
 check('every nation has a capital province', state.nations.every(function (n) {
   return state.provinces[n.capitalProvince] && state.provinces[n.capitalProvince].nationId === n.id;

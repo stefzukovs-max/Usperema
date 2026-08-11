@@ -94,7 +94,7 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
       seed: s.seed
     };
   });
-  if (info.player !== 'mng') fail('nation selection ignored, got ' + info.player);
+  if (info.player !== 'MNG') fail('nation selection ignored, got ' + info.player);
   if (info.provinces < 1) fail('player owns no provinces');
   console.log('started as ' + info.player + ' with ' + info.provinces + ' provinces, ' +
     info.armies + ' stacks on the map');
@@ -105,30 +105,53 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
 
   // Zoom out to see the whole world.
   await page.evaluate(function () {
-    SWW.UI.renderer.camera.zoom = 2.2;
-    SWW.UI.renderer.camera.x = 128;
-    SWW.UI.renderer.camera.y = 58;
-    SWW.UI.renderer.clampCamera();
+    var r = SWW.UI.renderer;
+    r.camera.zoom = r.minZoom;
+    r.camera.x = SWW.game.current.mapW / 2;
+    r.camera.y = SWW.game.current.mapH / 2;
+    r.clampCamera();
   });
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(SHOTS, '03-world.png') });
 
-  // Select the player's own stack and issue a move order through the UI.
+  // Issue a real move order through the UI, into own territory.
   var moved = await page.evaluate(function () {
     var s = SWW.game.current;
     var mine = s.armies.filter(function (a) { return a.ownerId === s.playerId; });
     if (!mine.length) return { ok: false, why: 'no armies' };
-    SWW.UI.selectArmy(mine[0].id);
-    var prov = s.provinces[mine[0].provinceId];
-    var target = prov.neighbors.map(function (id) { return s.provinces[id]; })
-      .filter(function (p) { return !p.isSea; })[0];
-    if (!target) return { ok: false, why: 'no land neighbour' };
+    var army = null, target = null;
+    for (var i = 0; i < mine.length && !target; i++) {
+      var prov = s.provinces[mine[i].provinceId];
+      for (var j = 0; j < prov.neighbors.length; j++) {
+        var cand = s.provinces[prov.neighbors[j]];
+        if (cand.isSea || cand.nationId !== s.playerId) continue;
+        army = mine[i]; target = cand; break;
+      }
+    }
+    if (!target) return { ok: false, why: 'no friendly neighbour to march to' };
+    SWW.UI.selectArmy(army.id);
     SWW.UI.setTargeting('move');
     SWW.UI.resolveTargeting(target);
-    return { ok: mine[0].path.length > 0, target: target.name, path: mine[0].path.length };
+    return { ok: army.path.length > 0, target: target.name, path: army.path.length };
   });
   if (!moved.ok) fail('move order failed: ' + (moved.why || 'no path set'));
   else console.log('move order accepted -> ' + moved.target + ' (' + moved.path + ' legs)');
+
+  // Marching into a country you are at peace with must be refused.
+  var blocked = await page.evaluate(function () {
+    var s = SWW.game.current;
+    var mine = s.armies.filter(function (a) { return a.ownerId === s.playerId; })[0];
+    var prov = s.provinces[mine.provinceId];
+    for (var j = 0; j < prov.neighbors.length; j++) {
+      var cand = s.provinces[prov.neighbors[j]];
+      if (cand.isSea || !cand.nationId || cand.nationId === s.playerId) continue;
+      if (SWW.state.treaty(s, s.playerId, cand.nationId) !== 'peace') continue;
+      return { tested: true, ok: !SWW.orders.issueMove(s, mine, cand.id).ok, name: cand.name };
+    }
+    return { tested: false };
+  });
+  if (blocked.tested && !blocked.ok) fail('army was allowed to march into a nation at peace');
+  else if (blocked.tested) console.log('border with ' + blocked.name + ' correctly closed while at peace');
   await page.screenshot({ path: path.join(SHOTS, '04-army.png') });
 
   // Build something and research something through the real code paths.

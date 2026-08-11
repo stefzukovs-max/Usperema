@@ -121,11 +121,28 @@
 
   // --- production ----------------------------------------------------------
 
+  /*
+   * What the nation wants, capped by what it can actually feed and pay for.
+   * Without the second half, small countries at war raise armies that starve
+   * themselves within a week.
+   */
   function desiredArmySize(state, nation) {
-    return Math.round(3 + nation.provinces.length * 1.4 + (nation.warCount || 0) * 4);
+    var want = Math.round(3 + nation.provinces.length * 1.4 + (nation.warCount || 0) * 4);
+    var income = nation.income;
+    if (income) {
+      // Roughly the running cost of one infantry battalion, with headroom.
+      var byFood = income.food / 3.6;
+      var byCash = income.cash / 7.5;
+      want = Math.min(want, Math.floor(Math.min(byFood, byCash)));
+    }
+    return Math.max(1, want);
   }
 
   function doProduction(state, rng, nation) {
+    // Never dig the hole deeper while already running a deficit.
+    var net = nation.net;
+    if (net && (net.food < 0 || net.cash < 0)) return;
+
     var armies = SWW.state.armiesOf(state, nation.id);
     var battalions = 0;
     for (var i = 0; i < armies.length; i++) battalions += SWW.state.unitCount(armies[i]);
@@ -178,7 +195,8 @@
     for (var i = 0; i < market.TRADED.length; i++) {
       var res = market.TRADED[i];
       var flow = income[res] || 0;
-      if (r[res] < 900 && flow < 0 && r.cash > 12000) {
+      var lowWater = res === 'food' ? 3000 : 900;
+      if (r[res] < lowWater && flow < 0 && r.cash > 8000) {
         market.buy(state, nation, res, Math.min(1200, Math.floor(r.cash * 0.25 / market.buyPrice(state, res))));
       } else if (r[res] > 22000 && flow > 0) {
         market.sell(state, nation, res, Math.floor((r[res] - 18000) * 0.5));
@@ -258,22 +276,33 @@
 
       if (domain === 'sea') { patrol(state, rng, army); continue; }
 
-      var best = null;
+      /*
+       * Score every objective with cheap straight-line distance first, then
+       * pathfind only for the best few.  Running a full route search for every
+       * candidate is what made the AI the most expensive part of the tick.
+       */
+      var here = state.provinces[army.provinceId];
+      var ranked = [];
       for (var o = 0; o < objectives.length; o++) {
         var target = objectives[o];
         if (claimed[target.id] && claimed[target.id] > 1) continue;
         if (!SWW.orders.canEnter(state, army, target)) continue;
         var defence = estimateDefence(state, target.id, nation.id);
         if (power < defence * 1.15 + 4) continue;
-        var path = SWW.orders.findPath(state, army, army.provinceId, target.id);
-        if (!path) continue;
-        var cost = SWW.orders.estimateTravel(state, army, path);
-        var value = target.vp + (target.nationId ? 6 : 0) - cost * 0.35;
-        if (!best || value > best.value) best = { target: target, value: value };
+        var dx = target.cx - here.cx, dy = target.cy - here.cy;
+        var crow = Math.sqrt(dx * dx + dy * dy);
+        ranked.push({ target: target, score: target.vp + (target.nationId ? 6 : 0) - crow * 0.25 });
       }
-      if (best) {
-        claimed[best.target.id] = (claimed[best.target.id] || 0) + 1;
-        SWW.orders.issueMove(state, army, best.target.id);
+      ranked.sort(function (x, y) { return y.score - x.score; });
+
+      var chosen = null;
+      for (var c = 0; c < ranked.length && c < 3; c++) {
+        var path = SWW.orders.findPath(state, army, army.provinceId, ranked[c].target.id);
+        if (path) { chosen = ranked[c].target; break; }
+      }
+      if (chosen) {
+        claimed[chosen.id] = (claimed[chosen.id] || 0) + 1;
+        SWW.orders.issueMove(state, army, chosen.id);
         continue;
       }
 
@@ -336,10 +365,11 @@
     var i, other;
     // Sue for peace when the war is going badly.
     if (nation.warCount > 0) {
-      for (i = 0; i < state.nations.length; i++) {
-        other = state.nations[i];
-        if (!other.alive || other.id === nation.id) continue;
-        if (SWW.state.treaty(state, nation.id, other.id) !== 'war') continue;
+      var enemies = Object.keys(nation.treaties);
+      for (i = 0; i < enemies.length; i++) {
+        other = state.nationById[enemies[i]];
+        if (!other || !other.alive || other.id === nation.id) continue;
+        if (nation.treaties[other.id] !== 'war') continue;
         var mine = SWW.state.nationPower(state, nation.id) + nation.vp * 2;
         var theirs = SWW.state.nationPower(state, other.id) + other.vp * 2;
         if (theirs > mine * 1.5 || nation.warCount >= 3 || nation.shortage) {
@@ -351,15 +381,17 @@
 
     // Otherwise look for an opportunity, or a friend.  Nobody shoots first in
     // the opening days; the map needs time to settle.
-    var mayDeclare = state.time > 48;
-    if (mayDeclare && rng.chance(nation.aggression * 0.16)) {
+    var mayDeclare = state.time > 72;      // a few days of calm before the first shot
+    var contacts = nation.contacts || [];
+    if (mayDeclare && contacts.length && rng.chance(nation.aggression * 0.16)) {
       var prey = null;
-      for (i = 0; i < state.nations.length; i++) {
-        other = state.nations[i];
-        if (!other.alive || other.id === nation.id) continue;
+      // Only bordering nations are worth a war; there is no way to reach the
+      // rest without a navy and a reason.
+      for (i = 0; i < contacts.length; i++) {
+        other = state.nationById[contacts[i]];
+        if (!other || !other.alive || other.id === nation.id) continue;
         var t = SWW.state.treaty(state, nation.id, other.id);
-        if (t === 'alliance' || t === 'nap') continue;
-        if (!SWW.diplomacy.areNeighbours(state, nation.id, other.id)) continue;
+        if (t === 'alliance' || t === 'nap' || t === 'war') continue;
         var rel = SWW.diplomacy.relation(state, nation.id, other.id);
         if (rel > 25) continue;
         var myP = SWW.state.nationPower(state, nation.id);
@@ -372,11 +404,11 @@
       return;
     }
 
-    if (rng.chance(0.12)) {
+    if (rng.chance(0.12) && contacts.length) {
       var friend = null;
-      for (i = 0; i < state.nations.length; i++) {
-        other = state.nations[i];
-        if (!other.alive || other.id === nation.id) continue;
+      for (i = 0; i < contacts.length; i++) {
+        other = state.nationById[contacts[i]];
+        if (!other || !other.alive || other.id === nation.id) continue;
         if (SWW.state.treaty(state, nation.id, other.id) !== 'peace') continue;
         var r = SWW.diplomacy.relation(state, nation.id, other.id);
         if (r < 10) continue;

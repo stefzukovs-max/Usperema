@@ -43,10 +43,15 @@
     if (!na || !nb || !na.alive || !nb.alive) return { ok: false, why: 'Nation no longer exists.' };
     setTreaty(state, a, b, 'war');
     setRelation(state, a, b, Math.min(relation(state, a, b), -60));
-    // Breaking a pact costs standing with everyone watching.
-    for (var i = 0; i < state.nations.length; i++) {
-      var third = state.nations[i];
-      if (third.id === a || third.id === b) continue;
+    // Breaking a pact costs standing with the neighbours and with anyone
+    // already bound to the victim.
+    var watchers = {};
+    (na.contacts || []).forEach(function (id) { watchers[id] = true; });
+    (nb.contacts || []).forEach(function (id) { watchers[id] = true; });
+    Object.keys(nb.treaties).forEach(function (id) { watchers[id] = true; });
+    for (var wi = 0, wk = Object.keys(watchers); wi < wk.length; wi++) {
+      var third = state.nationById[wk[wi]];
+      if (!third || !third.alive || third.id === a || third.id === b) continue;
       adjustRelation(state, a, third.id, -6);
       if (SWW.state.treaty(state, third.id, b) === 'alliance') {
         // Allies of the victim are dragged in.
@@ -79,26 +84,47 @@
   function refreshWarCounts(state) {
     for (var i = 0; i < state.nations.length; i++) {
       var n = state.nations[i], c = 0;
-      for (var j = 0; j < state.nations.length; j++) {
-        if (i === j) continue;
-        if (n.treaties[state.nations[j].id] === 'war' && state.nations[j].alive) c++;
+      for (var id in n.treaties) {
+        if (n.treaties[id] !== 'war') continue;
+        var other = state.nationById[id];
+        if (other && other.alive) c++;
       }
       n.warCount = c;
+    }
+  }
+
+  /**
+   * Who each nation actually shares a border with.  With nearly two hundred
+   * nations, scanning provinces for every diplomatic question is far too slow,
+   * so the border graph is rebuilt once a day and everything reads that.
+   */
+  function refreshContacts(state) {
+    var sets = {};
+    var i;
+    for (i = 0; i < state.nations.length; i++) sets[state.nations[i].id] = Object.create(null);
+    for (i = 0; i < state.landCount; i++) {
+      var p = state.provinces[i];
+      if (!p.nationId || !sets[p.nationId]) continue;
+      for (var j = 0; j < p.neighbors.length; j++) {
+        var np = state.provinces[p.neighbors[j]];
+        if (np.isSea || !np.nationId || np.nationId === p.nationId) continue;
+        if (!sets[np.nationId]) continue;
+        sets[p.nationId][np.nationId] = true;
+        sets[np.nationId][p.nationId] = true;
+      }
+    }
+    for (i = 0; i < state.nations.length; i++) {
+      var n = state.nations[i];
+      n.contacts = Object.keys(sets[n.id] || {});
+      n.contactSet = sets[n.id] || Object.create(null);
     }
   }
 
   /** Does `a` share a land border with `b`? */
   function areNeighbours(state, a, b) {
     var na = state.nationById[a];
-    if (!na) return false;
-    for (var i = 0; i < na.provinces.length; i++) {
-      var p = state.provinces[na.provinces[i]];
-      for (var j = 0; j < p.neighbors.length; j++) {
-        var np = state.provinces[p.neighbors[j]];
-        if (!np.isSea && np.nationId === b) return true;
-      }
-    }
-    return false;
+    if (!na || !na.contactSet) return false;
+    return !!na.contactSet[b];
   }
 
   /** How willing is `evaluator` to accept `type` from `from`? */
@@ -194,15 +220,25 @@
     return { ok: true };
   }
 
-  /** Slow relation drift; hostility near borders, warmth between allies. */
+  /**
+   * Relations drift only between nations with something between them: a shared
+   * border, a treaty, or a history.  Two countries on opposite sides of the
+   * world simply have no opinion until they meet.
+   */
   function tickRelations(state, rng, hours) {
     var nations = state.nations;
     for (var i = 0; i < nations.length; i++) {
       var a = nations[i];
       if (!a.alive) continue;
-      for (var j = i + 1; j < nations.length; j++) {
-        var b = nations[j];
-        if (!b.alive) continue;
+      var seen = Object.create(null);
+      var partners = (a.contacts || []).concat(Object.keys(a.treaties), Object.keys(a.relations));
+      for (var k = 0; k < partners.length; k++) {
+        var id = partners[k];
+        if (seen[id] || id === a.id) continue;
+        seen[id] = true;
+        var b = state.nationById[id];
+        if (!b || !b.alive) continue;
+        if (b.id < a.id) continue;      // each pair is handled once, from one side
         var t = SWW.state.treaty(state, a.id, b.id);
         var delta = 0;
         if (t === 'war') delta -= 0.4 * hours;
@@ -210,8 +246,8 @@
         else if (t === 'nap') delta += 0.06 * hours;
         else {
           var v = relation(state, a.id, b.id);
-          delta += (0 - v) * 0.004 * hours;                      // drift toward neutral
-          if (areNeighbours(state, a.id, b.id)) delta -= 0.05 * hours;   // border friction
+          delta += (0 - v) * 0.004 * hours;                            // drift toward neutral
+          if (a.contactSet && a.contactSet[b.id]) delta -= 0.05 * hours;  // border friction
         }
         delta += (rng.next() - 0.5) * 0.08 * hours;
         if (delta) adjustRelation(state, a.id, b.id, delta);
@@ -228,6 +264,6 @@
     setTreaty: setTreaty, declareWar: declareWar, makePeace: makePeace,
     proposeTreaty: proposeTreaty, respondToOffer: respondToOffer, breakTreaty: breakTreaty,
     evaluateOffer: evaluateOffer, tickRelations: tickRelations, areNeighbours: areNeighbours,
-    refreshWarCounts: refreshWarCounts, TREATY_LABEL: TREATY_LABEL
+    refreshWarCounts: refreshWarCounts, refreshContacts: refreshContacts, TREATY_LABEL: TREATY_LABEL
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

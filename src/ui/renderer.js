@@ -1,10 +1,17 @@
 /*
  * Map renderer.
  *
- * The terrain and the political overlay are pre-rendered once into offscreen
- * canvases at a fixed cell scale; the per-frame work is just blitting those
- * two layers under the camera transform and drawing the live overlays
- * (armies, movement paths, battles, labels).
+ * Province outlines are real vector paths, so borders stay crisp at any zoom.
+ * Drawing eight hundred of them every frame is too slow when the whole world
+ * is on screen, so there are two modes:
+ *
+ *   zoomed out  — blit a cached raster of the political map, repainted only
+ *                 where provinces actually change hands
+ *   zoomed in   — draw vectors directly, with bounding-box culling keeping the
+ *                 province count small
+ *
+ * Both modes use the same colours and line weights, so crossing the threshold
+ * is not noticeable.
  */
 (function (global) {
   'use strict';
@@ -14,129 +21,185 @@
   var UnitData = SWW.UnitData;
   var clamp = SWW.util.clamp;
 
-  var CELL = 4;              // offscreen pixels per grid cell
+  var BASE_SCALE = 2;            // cached-raster pixels per map unit
+  var VECTOR_ZOOM = 5;           // switch to vectors at or above this zoom
 
-  var OCEAN = ['#12283d', '#16304a'];
-  var SHORE = '#1e4666';
+  var OCEAN = '#12283d';
+  var OCEAN_DEEP = '#0e2033';
   var NEUTRAL = '#6a7480';
+  var COAST_LINE = 'rgba(6,13,20,0.85)';
+  var NATIONAL_LINE = 'rgba(9,15,21,0.9)';
+  var PROVINCE_LINE = 'rgba(26,38,48,0.34)';
 
   function Renderer(canvas, state) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.state = state;
-    this.camera = { x: state.grid.w / 2, y: state.grid.h / 2, zoom: 4 };
-    this.minZoom = 2;
-    this.maxZoom = 26;
-    this.terrainLayer = null;
-    this.politicalLayer = null;
-    this.fogLayer = null;
-    this.buildTerrain();
-    this.buildPolitical();
+    this.camera = { x: state.mapW / 2, y: state.mapH / 2, zoom: 4 };
+    this.minZoom = 1;
+    this.maxZoom = 40;
+    this.paths = new Array(state.provinces.length);
+    this.fillCache = new Array(state.provinces.length);
+    this.runBounds = new Array(state.runs.length);
+    this.baseLayer = null;
+    this.viewW = 1; this.viewH = 1; this.dpr = 1;
+    this.buildBase();
   }
 
-  Renderer.prototype.makeLayer = function () {
-    var c = global.document.createElement('canvas');
-    c.width = this.state.grid.w * CELL;
-    c.height = this.state.grid.h * CELL;
-    return c;
+  // --- geometry ------------------------------------------------------------
+
+  /** Path2D for a province, built once and reused for fills and hit tests. */
+  Renderer.prototype.pathFor = function (prov) {
+    var cached = this.paths[prov.id];
+    if (cached) return cached;
+    var path = new global.Path2D();
+    var map = SWW.mapdata.load();
+    for (var l = 0; l < prov.loops.length; l++) {
+      var pts = SWW.mapdata.loopPoints(map, prov.loops[l]);
+      if (pts.length < 6) continue;
+      path.moveTo(pts[0], pts[1]);
+      for (var i = 2; i < pts.length; i += 2) path.lineTo(pts[i], pts[i + 1]);
+      path.closePath();
+    }
+    this.paths[prov.id] = path;
+    return path;
   };
 
-  /** Static layer: terrain colours, coastline, ocean texture. */
-  Renderer.prototype.buildTerrain = function () {
-    var state = this.state, g = state.grid;
-    var layer = this.makeLayer();
-    var ctx = layer.getContext('2d');
-    var land = state.land, owner = state.cellOwner;
-
-    for (var y = 0; y < g.h; y++) {
-      for (var x = 0; x < g.w; x++) {
-        var idx = y * g.w + x;
-        var col;
-        if (!land[idx]) {
-          col = OCEAN[(x + y) & 1];
-        } else {
-          var prov = state.provinces[owner[idx]];
-          var t = prov && TERRAIN[prov.terrain] ? TERRAIN[prov.terrain] : TERRAIN.plains;
-          col = t.color;
-          // Gentle per-cell variation so large provinces are not flat slabs.
-          if ((x * 7 + y * 13) % 5 === 0) col = shade(col, -6);
-          else if ((x * 3 + y * 5) % 7 === 0) col = shade(col, 6);
-        }
-        ctx.fillStyle = col;
-        ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
-      }
+  Renderer.prototype.boundsFor = function (runIndex) {
+    var b = this.runBounds[runIndex];
+    if (b) return b;
+    var pts = this.state.runs[runIndex].pts;
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (var i = 0; i < pts.length; i += 2) {
+      if (pts[i] < x0) x0 = pts[i];
+      if (pts[i] > x1) x1 = pts[i];
+      if (pts[i + 1] < y0) y0 = pts[i + 1];
+      if (pts[i + 1] > y1) y1 = pts[i + 1];
     }
-    // Coastline: lighten water cells that touch land.
-    ctx.fillStyle = SHORE;
-    for (var yy = 0; yy < g.h; yy++) {
-      for (var xx = 0; xx < g.w; xx++) {
-        var i2 = yy * g.w + xx;
-        if (land[i2]) continue;
-        var touches = (xx > 0 && land[i2 - 1]) || (xx < g.w - 1 && land[i2 + 1]) ||
-          (yy > 0 && land[i2 - g.w]) || (yy < g.h - 1 && land[i2 + g.w]);
-        if (touches) ctx.fillRect(xx * CELL, yy * CELL, CELL, CELL);
-      }
-    }
-    this.terrainLayer = layer;
+    b = [x0, y0, x1, y1];
+    this.runBounds[runIndex] = b;
+    return b;
   };
 
-  /** Ownership wash plus province and national borders. */
-  Renderer.prototype.buildPolitical = function () {
-    var state = this.state, g = state.grid;
-    var layer = this.politicalLayer || this.makeLayer();
-    var ctx = layer.getContext('2d');
-    ctx.clearRect(0, 0, layer.width, layer.height);
-    var land = state.land, owner = state.cellOwner;
-
-    ctx.globalAlpha = 0.55;
-    for (var y = 0; y < g.h; y++) {
-      for (var x = 0; x < g.w; x++) {
-        var idx = y * g.w + x;
-        if (!land[idx]) continue;
-        var prov = state.provinces[owner[idx]];
-        if (!prov) continue;
-        var nation = prov.nationId ? state.nationById[prov.nationId] : null;
-        ctx.fillStyle = nation ? nation.color : NEUTRAL;
-        ctx.globalAlpha = nation ? 0.55 : 0.16;
-        ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
-      }
-    }
-    ctx.globalAlpha = 1;
-
-    // Borders: thin between provinces, bright between nations.
-    for (var yy = 0; yy < g.h; yy++) {
-      for (var xx = 0; xx < g.w; xx++) {
-        var i2 = yy * g.w + xx;
-        if (!land[i2]) continue;
-        var a = state.provinces[owner[i2]];
-        if (!a) continue;
-        drawEdge.call(this, xx, yy, i2, i2 + 1, xx < g.w - 1, true);
-        drawEdge.call(this, xx, yy, i2, i2 + g.w, yy < g.h - 1, false);
-      }
-    }
-
-    function drawEdge(x, y, i, j, inBounds, horizontal) {
-      if (!inBounds || !land[j]) return;
-      var pa = state.provinces[owner[i]], pb = state.provinces[owner[j]];
-      if (!pa || !pb || pa === pb) return;
-      var national = pa.nationId !== pb.nationId;
-      ctx.fillStyle = national ? 'rgba(12,18,24,0.85)' : 'rgba(20,30,38,0.35)';
-      var w = national ? 2 : 1;
-      if (horizontal) ctx.fillRect((x + 1) * CELL - (w >> 1), y * CELL, w, CELL);
-      else ctx.fillRect(x * CELL, (y + 1) * CELL - (w >> 1), CELL, w);
-    }
-
-    this.politicalLayer = layer;
-    state.mapDirty = false;
+  /** Terrain colour blended toward the owner's national colour. */
+  Renderer.prototype.fillFor = function (prov) {
+    var key = prov.nationId || '-';
+    var cached = this.fillCache[prov.id];
+    if (cached && cached.key === key) return cached.color;
+    var terrain = TERRAIN[prov.terrain] || TERRAIN.plains;
+    var owner = prov.nationId ? this.state.nationById[prov.nationId] : null;
+    var color = owner ? mix(terrain.color, owner.color, 0.66) : mix(terrain.color, NEUTRAL, 0.2);
+    this.fillCache[prov.id] = { key: key, color: color };
+    return color;
   };
 
-  function shade(hex, amount) {
+  function hexToRgb(hex) {
     var n = parseInt(hex.slice(1), 16);
-    var r = clamp(((n >> 16) & 255) + amount, 0, 255);
-    var g = clamp(((n >> 8) & 255) + amount, 0, 255);
-    var b = clamp((n & 255) + amount, 0, 255);
-    return 'rgb(' + r + ',' + g + ',' + b + ')';
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
+
+  function mix(a, b, t) {
+    var ca = hexToRgb(a), cb = hexToRgb(b);
+    return 'rgb(' + Math.round(ca[0] + (cb[0] - ca[0]) * t) + ',' +
+      Math.round(ca[1] + (cb[1] - ca[1]) * t) + ',' +
+      Math.round(ca[2] + (cb[2] - ca[2]) * t) + ')';
+  }
+
+  // --- cached political raster --------------------------------------------
+
+  Renderer.prototype.buildBase = function () {
+    var state = this.state;
+    var layer = global.document.createElement('canvas');
+    layer.width = Math.round(state.mapW * BASE_SCALE);
+    layer.height = Math.round(state.mapH * BASE_SCALE);
+    var ctx = layer.getContext('2d');
+    ctx.scale(BASE_SCALE, BASE_SCALE);
+    ctx.fillStyle = OCEAN_DEEP;
+    ctx.fillRect(0, 0, state.mapW, state.mapH);
+    this.baseLayer = layer;
+    this.baseCtx = ctx;
+    this.paintBase(ctx, null);
+  };
+
+  /**
+   * Paint the political map into the cached raster.  With `only` set, just that
+   * province and its immediate surroundings are redrawn, which is what happens
+   * when a province changes hands.
+   */
+  Renderer.prototype.paintBase = function (ctx, only) {
+    var state = this.state;
+    var i;
+    if (only) {
+      var b = only.bbox;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(b[0] - 2, b[1] - 2, b[2] - b[0] + 4, b[3] - b[1] + 4);
+      ctx.clip();
+      ctx.fillStyle = OCEAN_DEEP;
+      ctx.fillRect(b[0] - 2, b[1] - 2, b[2] - b[0] + 4, b[3] - b[1] + 4);
+    }
+
+    var list = only
+      ? [only].concat(only.neighbors.map(function (id) { return state.provinces[id]; }))
+      : state.provinces;
+    for (i = 0; i < list.length; i++) {
+      var prov = list[i];
+      if (prov.isSea) continue;
+      ctx.fillStyle = this.fillFor(prov);
+      ctx.fill(this.pathFor(prov));
+    }
+
+    this.strokeBorders(ctx, 1, only ? only.bbox : null);
+    if (only) ctx.restore();
+  };
+
+  /**
+   * Draw every border once, choosing its weight from the two provinces that
+   * share it.  `scale` is the current pixels-per-map-unit, so line widths stay
+   * visually constant however far the map is zoomed.
+   */
+  Renderer.prototype.strokeBorders = function (ctx, scale, clipBox) {
+    var state = this.state;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    // Province lines first, then national, then coast, so the heavier lines sit
+    // on top where they meet.
+    for (var pass = 0; pass < 3; pass++) {
+      ctx.beginPath();
+      var any = false;
+      for (var r = 0; r < state.runs.length; r++) {
+        var run = state.runs[r];
+        var a = state.provinces[run.a];
+        var b = run.b >= 0 ? state.provinces[run.b] : null;
+        if (a.isSea && (!b || b.isSea)) continue;
+        var coast = !b || (b.isSea !== a.isSea);
+        var national = !coast && a.nationId !== b.nationId;
+        var kind = coast ? 2 : national ? 1 : 0;
+        if (kind !== pass) continue;
+        if (clipBox) {
+          var bb = this.boundsFor(r);
+          if (bb[2] < clipBox[0] - 3 || bb[0] > clipBox[2] + 3 ||
+            bb[3] < clipBox[1] - 3 || bb[1] > clipBox[3] + 3) continue;
+        }
+        var pts = run.pts;
+        ctx.moveTo(pts[0], pts[1]);
+        for (var i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+        any = true;
+      }
+      if (!any) continue;
+      ctx.strokeStyle = pass === 2 ? COAST_LINE : pass === 1 ? NATIONAL_LINE : PROVINCE_LINE;
+      ctx.lineWidth = (pass === 2 ? 1.1 : pass === 1 ? 1.4 : 0.5) / scale;
+      ctx.stroke();
+    }
+  };
+
+  /** Called after a province changes hands. */
+  Renderer.prototype.repaint = function (provinceId) {
+    var prov = this.state.provinces[provinceId];
+    if (!prov || !this.baseCtx) return;
+    this.fillCache[provinceId] = null;
+    this.paintBase(this.baseCtx, prov);
+  };
 
   // --- camera --------------------------------------------------------------
 
@@ -148,17 +211,19 @@
     this.viewW = rect.width;
     this.viewH = rect.height;
     this.dpr = dpr;
-    this.minZoom = Math.max(1.2, this.viewW / this.state.grid.w * 0.9);
+    // Zoom out far enough that the whole world always fits on screen.
+    this.minZoom = Math.max(0.15,
+      Math.min(rect.width / this.state.mapW, rect.height / this.state.mapH) * 0.98);
     this.camera.zoom = clamp(this.camera.zoom, this.minZoom, this.maxZoom);
     this.clampCamera();
   };
 
   Renderer.prototype.clampCamera = function () {
-    var g = this.state.grid;
+    var w = this.state.mapW, h = this.state.mapH;
     var halfW = this.viewW / (2 * this.camera.zoom);
     var halfH = this.viewH / (2 * this.camera.zoom);
-    this.camera.x = clamp(this.camera.x, Math.min(halfW, g.w / 2), Math.max(g.w - halfW, g.w / 2));
-    this.camera.y = clamp(this.camera.y, Math.min(halfH, g.h / 2), Math.max(g.h - halfH, g.h / 2));
+    this.camera.x = clamp(this.camera.x, Math.min(halfW, w / 2), Math.max(w - halfW, w / 2));
+    this.camera.y = clamp(this.camera.y, Math.min(halfH, h / 2), Math.max(h - halfH, h / 2));
   };
 
   Renderer.prototype.toScreen = function (mx, my) {
@@ -199,16 +264,39 @@
     this.clampCamera();
   };
 
-  Renderer.prototype.provinceAt = function (sx, sy) {
-    var m = this.toMap(sx, sy);
-    var g = this.state.grid;
-    var x = Math.floor(m.x), y = Math.floor(m.y);
-    if (x < 0 || y < 0 || x >= g.w || y >= g.h) return null;
-    var id = this.state.cellOwner[y * g.w + x];
-    return id >= 0 ? this.state.provinces[id] : null;
+  /** The map rectangle currently on screen, with a margin. */
+  Renderer.prototype.viewBox = function (margin) {
+    var m = margin || 0;
+    var halfW = this.viewW / (2 * this.camera.zoom) + m;
+    var halfH = this.viewH / (2 * this.camera.zoom) + m;
+    return [this.camera.x - halfW, this.camera.y - halfH,
+      this.camera.x + halfW, this.camera.y + halfH];
   };
 
-  /** Screen position of an army, interpolated along its current leg. */
+  function overlaps(box, bb) {
+    return !(bb[2] < box[0] || bb[0] > box[2] || bb[3] < box[1] || bb[1] > box[3]);
+  }
+
+  /** Province under a screen point: bounding boxes first, then an exact test. */
+  Renderer.prototype.provinceAt = function (sx, sy) {
+    var m = this.toMap(sx, sy);
+    var state = this.state;
+    var ctx = this.ctx;
+    var fallback = null, fallbackD = Infinity;
+    for (var i = 0; i < state.provinces.length; i++) {
+      var p = state.provinces[i];
+      var b = p.bbox;
+      if (m.x < b[0] - 0.5 || m.x > b[2] + 0.5 || m.y < b[1] - 0.5 || m.y > b[3] + 0.5) continue;
+      if (ctx.isPointInPath(this.pathFor(p), m.x, m.y)) return p;
+      var dx = p.cx - m.x, dy = p.cy - m.y;
+      var d = dx * dx + dy * dy;
+      if (d < fallbackD) { fallbackD = d; fallback = p; }
+    }
+    // Exactly on a border the hit test can fall through the crack; accept the
+    // nearest province whose box contains the point.
+    return fallbackD < 9 ? fallback : null;
+  };
+
   Renderer.prototype.armyPoint = function (army) {
     var from = this.state.provinces[army.provinceId];
     if (!army.path.length || !army.legTotal) return { x: from.cx, y: from.cy };
@@ -221,28 +309,29 @@
 
   Renderer.prototype.draw = function (ui) {
     var state = this.state;
-    if (state.mapDirty) this.buildPolitical();
+    if (state.dirtyProvinces && state.dirtyProvinces.length) {
+      for (var d = 0; d < state.dirtyProvinces.length; d++) this.repaint(state.dirtyProvinces[d]);
+      state.dirtyProvinces.length = 0;
+    }
     var ctx = this.ctx;
     var z = this.camera.zoom;
 
     ctx.save();
     ctx.scale(this.dpr, this.dpr);
-    ctx.fillStyle = OCEAN[0];
+    ctx.fillStyle = OCEAN;
     ctx.fillRect(0, 0, this.viewW, this.viewH);
 
-    var originX = -this.camera.x * z + this.viewW / 2;
-    var originY = -this.camera.y * z + this.viewH / 2;
-    var scale = z / CELL;
-
-    ctx.imageSmoothingEnabled = z < 8;
     ctx.save();
-    ctx.translate(originX, originY);
-    ctx.scale(scale, scale);
-    ctx.drawImage(this.terrainLayer, 0, 0);
-    ctx.drawImage(this.politicalLayer, 0, 0);
+    ctx.translate(-this.camera.x * z + this.viewW / 2, -this.camera.y * z + this.viewH / 2);
+    ctx.scale(z, z);
+    if (z < VECTOR_ZOOM) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.baseLayer, 0, 0, state.mapW, state.mapH);
+    } else {
+      this.drawVector(ctx, ui, z);
+    }
     ctx.restore();
 
-    this.drawFog(ctx, ui);
     this.drawProvinceMarkers(ctx, ui);
     this.drawPaths(ctx, ui);
     this.drawArmies(ctx, ui);
@@ -250,64 +339,55 @@
     ctx.restore();
   };
 
-  /**
-   * Dim provinces the player cannot see into.  Fog follows province borders
-   * exactly, so it is painted cell-by-cell into its own layer and rebuilt only
-   * when the visible set actually changes.
-   */
-  Renderer.prototype.buildFog = function (visible) {
-    var state = this.state, g = state.grid;
-    var layer = this.fogLayer || (this.fogLayer = this.makeLayer());
-    var ctx = layer.getContext('2d');
-    ctx.clearRect(0, 0, layer.width, layer.height);
-    ctx.fillStyle = 'rgba(5,10,16,0.42)';
-    for (var i = 0; i < state.landCount; i++) {
+  Renderer.prototype.drawVector = function (ctx, ui, z) {
+    var state = this.state;
+    var box = this.viewBox(2);
+    var visible = [];
+    var i;
+    for (i = 0; i < state.provinces.length; i++) {
       var p = state.provinces[i];
-      if (p.size === 0 || visible[p.id]) continue;
-      for (var c = 0; c < p.cells.length; c++) {
-        var idx = p.cells[c];
-        ctx.fillRect((idx % g.w) * CELL, ((idx / g.w) | 0) * CELL, CELL, CELL);
+      if (p.isSea || !overlaps(box, p.bbox)) continue;
+      visible.push(p);
+      ctx.fillStyle = this.fillFor(p);
+      ctx.fill(this.pathFor(p));
+    }
+    this.strokeBorders(ctx, z, box);
+
+    // Dim what the player cannot see into.  Only in vector mode: at world zoom
+    // the political map is common knowledge — it is the armies that are hidden.
+    if (ui && ui.visible) {
+      ctx.save();
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = '#050a10';
+      for (i = 0; i < visible.length; i++) {
+        if (ui.visible[visible[i].id]) continue;
+        ctx.fill(this.pathFor(visible[i]));
       }
+      ctx.restore();
     }
   };
 
-  Renderer.prototype.drawFog = function (ctx, ui) {
-    if (!ui || !ui.visible) return;
-    if (this.fogStamp !== ui.visibleStamp || !this.fogLayer) {
-      this.fogStamp = ui.visibleStamp;
-      this.buildFog(ui.visible);
-    }
-    var z = this.camera.zoom;
-    ctx.save();
-    ctx.translate(-this.camera.x * z + this.viewW / 2, -this.camera.y * z + this.viewH / 2);
-    ctx.scale(z / CELL, z / CELL);
-    ctx.drawImage(this.fogLayer, 0, 0);
-    ctx.restore();
-  };
-
-  /** City dots, capital stars, capture progress, selection ring. */
   Renderer.prototype.drawProvinceMarkers = function (ctx, ui) {
     var state = this.state;
     var z = this.camera.zoom;
+    var box = this.viewBox(4);
     for (var i = 0; i < state.landCount; i++) {
       var p = state.provinces[i];
-      if (p.size === 0) continue;
-      var s = this.toScreen(p.cx, p.cy);
-      if (s.x < -30 || s.y < -30 || s.x > this.viewW + 30 || s.y > this.viewH + 30) continue;
-
+      if (p.cx < box[0] || p.cx > box[2] || p.cy < box[1] || p.cy > box[3]) continue;
       var major = p.isCapital || p.cityLevel >= 4;
-      var r = clamp(1.4 + p.cityLevel * 0.55, 2, 6) * clamp(z / 5, 0.5, 1.6);
-      if (major || z > 6.5) {
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = p.isCapital ? '#f4e4b0' : major ? 'rgba(235,244,255,0.8)' : 'rgba(214,230,244,0.5)';
-        ctx.fill();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = 'rgba(8,14,20,0.8)';
-        ctx.stroke();
-      }
+      if (!major && z < 6) continue;
+      var s = this.toScreen(p.cx, p.cy);
+      var r = clamp(1.2 + p.cityLevel * 0.5, 1.8, 5.5) * clamp(z / 6, 0.55, 1.5);
 
-      if (p.capture && z > 3) {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = p.isCapital ? '#f4e4b0' : major ? 'rgba(235,244,255,0.82)' : 'rgba(214,230,244,0.5)';
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(8,14,20,0.8)';
+      ctx.stroke();
+
+      if (p.capture && z > 2.5) {
         var frac = clamp(p.capture.progress / p.capture.needed, 0, 1);
         var nation = state.nationById[p.capture.by];
         ctx.beginPath();
@@ -323,10 +403,10 @@
         ctx.lineWidth = 2;
         ctx.stroke();
       }
-      if (state.battleProvinces && state.time - state.battleProvinces[p.id] < 1.01 && z > 2.5) {
+      if (state.battleProvinces && state.time - state.battleProvinces[p.id] < 1.01 && z > 2) {
         ctx.save();
-        ctx.globalAlpha = 0.85;
-        ctx.font = Math.round(clamp(z * 1.8, 10, 22)) + 'px sans-serif';
+        ctx.globalAlpha = 0.9;
+        ctx.font = Math.round(clamp(z * 1.6, 11, 22)) + 'px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('⚔', s.x, s.y - r - 10);
@@ -366,17 +446,22 @@
   Renderer.prototype.drawArmies = function (ctx, ui) {
     var state = this.state;
     var z = this.camera.zoom;
+    var box = this.viewBox(6);
     var stacksAt = {};
     var i;
     for (i = 0; i < state.armies.length; i++) {
       var a = state.armies[i];
       var isPlayer = a.ownerId === state.playerId;
       if (!isPlayer && ui && ui.visible && !ui.visible[a.provinceId]) continue;
+      var home = state.provinces[a.provinceId];
+      if (home.cx < box[0] || home.cx > box[2] || home.cy < box[1] || home.cy > box[3]) continue;
       var key = a.path.length ? a.id : a.provinceId;
       (stacksAt[key] || (stacksAt[key] = [])).push(a);
     }
 
-    var h = clamp(z * 2.2, 14, 30);
+    // Full markers would swamp the world view, so far out they become dots.
+    var dots = z < 2.2;
+    var h = clamp(z * 1.6, 13, 28);
     var w = h * 1.6;
     for (var key in stacksAt) {
       var list = stacksAt[key];
@@ -385,10 +470,26 @@
         var pt = this.armyPoint(army);
         var s = this.toScreen(pt.x, pt.y);
         if (s.x < -40 || s.y < -40 || s.x > this.viewW + 40 || s.y > this.viewH + 40) continue;
+        if (dots) {
+          drawDot.call(this, ctx, army, s.x, s.y, ui);
+          continue;
+        }
         var offset = (k - (list.length - 1) / 2) * (w * 0.55);
-        var x = s.x + offset, y = s.y - h * 0.9;
-        drawStack.call(this, ctx, army, x, y, w, h, ui);
+        drawStack.call(this, ctx, army, s.x + offset, s.y - h * 0.9, w, h, ui);
       }
+    }
+
+    function drawDot(c, army, x, y, uiRef) {
+      var nation = state.nationById[army.ownerId];
+      var selected = uiRef && uiRef.selectedArmyId === army.id;
+      var r = selected ? 4 : 2.6;
+      c.beginPath();
+      c.arc(x, y - 3, r, 0, Math.PI * 2);
+      c.fillStyle = nation ? nation.color : '#888';
+      c.fill();
+      c.lineWidth = 1;
+      c.strokeStyle = selected ? '#7fe3ff' : (army.inCombat ? '#ff7a5f' : 'rgba(0,0,0,0.75)');
+      c.stroke();
     }
 
     function drawStack(c, army, x, y, bw, bh, uiRef) {
@@ -426,24 +527,23 @@
 
   Renderer.prototype.drawLabels = function (ctx, ui) {
     var z = this.camera.zoom;
-    if (z < 6) return;
+    if (z < 5) return;
     var state = this.state;
+    var box = this.viewBox(2);
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.font = Math.round(clamp(z * 1.05, 9, 15)) + 'px "Segoe UI", system-ui, sans-serif';
+    ctx.font = Math.round(clamp(z * 0.8, 10, 15)) + 'px "Segoe UI", system-ui, sans-serif';
     for (var i = 0; i < state.landCount; i++) {
       var p = state.provinces[i];
-      if (p.size === 0) continue;
+      if (p.cx < box[0] || p.cx > box[2] || p.cy < box[1] || p.cy > box[3]) continue;
       if (z < 9 && p.cityLevel < 4 && !p.isCapital) continue;
       var s = this.toScreen(p.cx, p.cy);
-      if (s.x < 0 || s.y < 0 || s.x > this.viewW || s.y > this.viewH) continue;
-      var text = p.name + (p.cityLevel > 1 ? ' (' + p.cityLevel + ')' : '');
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(6,12,18,0.85)';
-      ctx.strokeText(text, s.x, s.y + 6);
+      ctx.strokeText(p.name, s.x, s.y + 6);
       ctx.fillStyle = p.isCapital ? '#ffe9a8' : '#e8f2ff';
-      ctx.fillText(text, s.x, s.y + 6);
+      ctx.fillText(p.name, s.x, s.y + 6);
     }
     ctx.restore();
   };

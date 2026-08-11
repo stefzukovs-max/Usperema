@@ -32,37 +32,82 @@
     buildMenu();
   }
 
+  /** Every country on the map, largest first, with its size and capital. */
+  function nationChoices() {
+    var map = SWW.mapdata.load();
+    var counts = {};
+    var capitals = {};
+    var i;
+    for (i = 0; i < map.landProvinceCount; i++) {
+      var p = map.provinces[i];
+      if (p.nationIndex < 0) continue;
+      counts[p.nationIndex] = (counts[p.nationIndex] || 0) + 1;
+    }
+    var out = [];
+    for (i = 0; i < map.nations.length; i++) {
+      var n = map.nations[i];
+      if (n.capital < 0) continue;
+      capitals[i] = map.provinces[n.capital].name;
+      out.push({
+        id: n.iso, name: n.name, color: n.colour,
+        provinces: counts[i] || 0, capital: capitals[i], pop: n.pop
+      });
+    }
+    out.sort(function (a, b) { return b.provinces - a.provinces || b.pop - a.pop; });
+    return out;
+  }
+
   function buildMenu() {
     var chosen = { nation: null };
     var grid = doc.getElementById('nationGrid');
-    clear(grid);
+    var search = doc.getElementById('nationSearch');
+    var choices = nationChoices();
+    doc.getElementById('nationCount').textContent = choices.length + ' countries';
 
-    var randomBtn = el('button', {
-      class: 'nation-card random selected',
-      onclick: function (e) { pick(e.currentTarget, null); }
-    }, [
-      el('span', { class: 'nc-chip', style: 'background:linear-gradient(135deg,#7fe3ff,#3f7fd6)' }),
-      el('span', { class: 'nc-name', text: 'Random Power' }),
-      el('span', { class: 'nc-meta', text: 'Let the war decide' })
-    ]);
-    grid.appendChild(randomBtn);
-
-    SWW.NationData.NATIONS.forEach(function (n) {
+    function render(filter) {
+      clear(grid);
+      var q = (filter || '').trim().toLowerCase();
       grid.appendChild(el('button', {
-        class: 'nation-card',
-        onclick: function (e) { pick(e.currentTarget, n.id); }
+        class: 'nation-card random' + (chosen.nation === null ? ' selected' : ''),
+        onclick: function (e) { pick(e.currentTarget, null); }
       }, [
-        el('span', { class: 'nc-chip', style: 'background:' + n.color }),
-        el('span', { class: 'nc-name', text: n.name }),
-        el('span', { class: 'nc-meta', text: n.capital + ' · ' + n.reach + ' provinces' })
+        el('span', { class: 'nc-chip', style: 'background:linear-gradient(135deg,#7fe3ff,#3f7fd6)' }),
+        el('span', { class: 'nc-name', text: 'Random Power' }),
+        el('span', { class: 'nc-meta', text: 'Let the war decide' })
       ]));
-    });
+
+      var shown = 0;
+      choices.forEach(function (n) {
+        if (q && n.name.toLowerCase().indexOf(q) < 0 && n.capital.toLowerCase().indexOf(q) < 0) return;
+        shown++;
+        grid.appendChild(el('button', {
+          class: 'nation-card' + (chosen.nation === n.id ? ' selected' : ''),
+          onclick: function (e) { pick(e.currentTarget, n.id); }
+        }, [
+          el('span', { class: 'nc-chip', style: 'background:' + n.color }),
+          el('span', { class: 'nc-name', text: n.name }),
+          el('span', {
+            class: 'nc-meta',
+            text: n.capital + ' · ' + n.provinces + (n.provinces === 1 ? ' province' : ' provinces')
+          })
+        ]));
+      });
+      if (!shown && q) {
+        grid.appendChild(el('div', { class: 'muted small', text: 'No country matches “' + filter + '”.' }));
+      }
+    }
 
     function pick(node, id) {
       chosen.nation = id;
       var cards = grid.childNodes;
-      for (var i = 0; i < cards.length; i++) cards[i].classList.toggle('selected', cards[i] === node);
+      for (var i = 0; i < cards.length; i++) {
+        if (cards[i].classList) cards[i].classList.toggle('selected', cards[i] === node);
+      }
     }
+
+    search.value = '';
+    search.oninput = function () { render(search.value); };
+    render('');
 
     doc.getElementById('startBtn').onclick = function () {
       var seed = doc.getElementById('seedInput').value.trim();

@@ -12,10 +12,16 @@
   var ResearchData = SWW.ResearchData;
   var clamp = SWW.util.clamp;
 
-  var DEPOSIT_RATE = 0.42;   // deposit yield per hour, per point of population
-  var FARM_RATE = 0.17;      // baseline agriculture every province produces
-  var CASH_RATE = 0.55;
-  var MANPOWER_RATE = 0.05;
+  /*
+   * Yields per hour, per point of province population.  Calibrated so a mid
+   * sized nation can sustain twenty-odd battalions and add one or two a day —
+   * fast enough to recover from a bad battle, slow enough that losing an army
+   * hurts.
+   */
+  var DEPOSIT_RATE = 0.19;
+  var FARM_RATE = 0.085;     // baseline agriculture every province produces
+  var CASH_RATE = 0.26;
+  var MANPOWER_RATE = 0.024;
 
   /** Sum of a named bonus across every researched tech. */
   function techBonus(nation, key) {

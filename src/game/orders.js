@@ -164,6 +164,7 @@
   }
 
   function tickMovement(state, hours) {
+    var moved = false;
     for (var i = 0; i < state.armies.length; i++) {
       var army = state.armies[i];
       if (!army.path.length) continue;
@@ -181,6 +182,7 @@
         }
         army.provinceId = next;
         army.entrench = 0;
+        moved = true;
         if (!army.path.length) {
           army.legRemaining = 0;
           army.legTotal = 0;
@@ -190,6 +192,9 @@
         startLeg(state, army);
       }
     }
+    // One invalidation for the whole pass: bumping per step would rebuild the
+    // army index hundreds of times an hour.
+    if (moved) SWW.state.touchArmies(state);
   }
 
   function onArrive(state, army) {
@@ -224,6 +229,7 @@
     }
     var idx = state.armies.indexOf(source);
     if (idx >= 0) state.armies.splice(idx, 1);
+    SWW.state.touchArmies(state);
     target.entrench = Math.min(target.entrench, source.entrench);
     return { ok: true };
   }
@@ -259,6 +265,7 @@
     };
     fresh.name = SWW.state.defaultArmyName(state, fresh);
     state.armies.push(fresh);
+    SWW.state.touchArmies(state);
     return { ok: true, army: fresh };
   }
 

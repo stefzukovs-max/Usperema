@@ -1,15 +1,16 @@
 /*
  * Saving and loading.
  *
- * The map is a pure function of the seed, so a save only stores what the war
- * has changed: ownership, buildings, stockpiles, armies, treaties and the log.
- * Loading regenerates the world from the seed and replays that diff onto it.
+ * Geography comes from the compiled map and terrain is a pure function of the
+ * seed, so a save only stores what the war has changed: ownership, buildings,
+ * stockpiles, armies, treaties and the log.  Loading rebuilds the world from
+ * the seed and replays that diff onto it, which keeps saves small.
  */
 (function (global) {
   'use strict';
 
   var SWW = global.SWW = global.SWW || {};
-  var SLOT = 'sww3.save.v1';
+  var SLOT = 'sww3.save.v2';
 
   function serialise(state) {
     var provinces = [];
@@ -35,7 +36,7 @@
       });
     }
     return {
-      version: 1,
+      version: 2,
       seed: state.seed,
       playerId: state.playerId,
       time: state.time,
@@ -106,7 +107,7 @@
     state.playerId = data.playerId;
     SWW.state.recomputeVP(state);
     SWW.diplomacy.refreshWarCounts(state);
-    state.mapDirty = true;
+    state.dirtyProvinces = [];
     return state;
   }
 

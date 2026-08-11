@@ -147,6 +147,7 @@
 
   /** Drop dead groups and re-derive battalion counts from remaining hit points. */
   function reconcile(state) {
+    var removed = false;
     for (var i = state.armies.length - 1; i >= 0; i--) {
       var army = state.armies[i];
       var kept = [];
@@ -159,8 +160,9 @@
         kept.push(g);
       }
       army.units = kept;
-      if (kept.length === 0) state.armies.splice(i, 1);
+      if (kept.length === 0) { state.armies.splice(i, 1); removed = true; }
     }
+    if (removed) SWW.state.touchArmies(state);
   }
 
   function groupByOwner(armies) {
@@ -390,7 +392,8 @@
     prov.queue = [];
     var nn = state.nationById[newOwnerId];
     if (nn) nn.provinces.push(prov.id);
-    state.mapDirty = true;
+    // Tell the renderer to repaint just this corner of the cached map.
+    (state.dirtyProvinces || (state.dirtyProvinces = [])).push(prov.id);
 
     var oldName = oldOwnerId && state.nationById[oldOwnerId] ? state.nationById[oldOwnerId].name : 'neutral forces';
     var newName = nn ? nn.name : 'unknown';
@@ -412,8 +415,9 @@
     for (var i = state.armies.length - 1; i >= 0; i--) {
       if (state.armies[i].ownerId === nationId) state.armies.splice(i, 1);
     }
+    SWW.state.touchArmies(state);
     for (var j = 0; j < state.nations.length; j++) {
-      state.nations[j].treaties[nationId] = 'peace';
+      delete state.nations[j].treaties[nationId];
     }
     SWW.state.pushLog(state, 'world', nation.name + ' has been eliminated.', { nationId: nationId });
   }
