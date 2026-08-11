@@ -1,0 +1,13 @@
+{
+  "name": "supremacy-world-war-3",
+  "version": "1.0.0",
+  "description": "A real-time global strategy game in the browser, no build step required.",
+  "private": true,
+  "scripts": {
+    "start": "npx http-server . -p 8080 -c-1",
+    "test": "node tools/simtest.js 60 && node tools/uitest.js",
+    "test:sim": "node tools/simtest.js 60",
+    "test:ui": "node tools/uitest.js"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,4 @@
+node_modules/
+tools/shots/*.png
+!tools/shots/06-desktop.png
+.DS_Store

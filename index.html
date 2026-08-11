@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d1a26">
+<title>Supremacy: World War III</title>
+<link rel="stylesheet" href="styles/main.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%230d1a26'/><text y='24' x='6' font-size='22'>&#9876;</text></svg>">
+</head>
+<body>
+
+<!-- ------------------------------------------------------------------ menu -->
+<div id="menu" class="screen">
+  <div class="menu-inner">
+    <header class="brand">
+      <div class="brand-kicker">Supremacy</div>
+      <h1 class="brand-title">World War <span>III</span></h1>
+      <p class="brand-sub">A real-time global strategy game. Build an economy, raise an army,
+        out-manoeuvre twenty-nine rival powers, and take the world.</p>
+    </header>
+
+    <div class="menu-controls">
+      <label class="seed-field">
+        <span>Map seed</span>
+        <input id="seedInput" type="text" placeholder="leave blank for a fresh world" autocomplete="off">
+      </label>
+      <button id="startBtn" class="primary-btn">Find New Game</button>
+      <button id="continueBtn" class="secondary-btn" style="display:none">Continue</button>
+    </div>
+
+    <h2 class="menu-heading">Choose your nation</h2>
+    <div id="nationGrid" class="nation-grid"></div>
+  </div>
+</div>
+
+<!-- --------------------------------------------------------------- loading -->
+<div id="loading" class="overlay">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <div>Drawing borders…</div>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------------ game -->
+<div id="game" class="screen">
+
+  <header id="topbar">
+    <div class="top-row">
+      <div class="hud-nation">
+        <span id="hudFlag" class="chip big"></span>
+        <span id="hudNation">—</span>
+      </div>
+      <div class="hud-clock">
+        <span class="hud-icon">&#128197;</span><span id="hudDay">1</span>
+        <span class="hud-icon">&#128347;</span><span id="hudClock">00:00</span>
+      </div>
+      <div id="hudVp" class="hud-vp">0/0 VP</div>
+    </div>
+    <div id="resourceStrip" class="resource-strip"></div>
+  </header>
+
+  <div id="mapWrap">
+    <canvas id="map"></canvas>
+    <div id="speedControls" class="speed-controls"></div>
+    <div id="targetingBar" class="targeting-bar">
+      <span id="targetingText">Select a target</span>
+      <button id="cancelTargeting" class="ghost">Cancel</button>
+    </div>
+    <div id="toasts" class="toasts"></div>
+  </div>
+
+  <section id="panel" class="panel">
+    <div class="panel-head">
+      <div>
+        <div id="panelTitle" class="panel-title">—</div>
+        <div id="panelSub" class="panel-sub"></div>
+      </div>
+      <button id="closePanel" class="icon-btn">✕</button>
+    </div>
+    <div id="panelBody" class="panel-body"></div>
+  </section>
+
+  <nav id="bottomNav" class="bottom-nav"></nav>
+</div>
+
+<!-- ----------------------------------------------------------------- modal -->
+<div id="modalBackdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modalTitle">—</h2>
+      <button id="modalClose" class="icon-btn">✕</button>
+    </div>
+    <div id="modalBody" class="modal-body"></div>
+  </div>
+</div>
+
+<!-- ------------------------------------------------------------- game over -->
+<div id="gameOver" class="overlay">
+  <div class="over-box">
+    <h2 id="overTitle">Victory</h2>
+    <p id="overText"></p>
+    <div class="over-actions">
+      <button id="overRestart" class="primary-btn">New war</button>
+      <button id="overWatch" class="secondary-btn">Keep watching</button>
+    </div>
+  </div>
+</div>
+
+<script src="src/engine/rng.js"></script>
+<script src="src/engine/util.js"></script>
+<script src="src/data/landmask.js"></script>
+<script src="src/data/nations.js"></script>
+<script src="src/data/units.js"></script>
+<script src="src/data/buildings.js"></script>
+<script src="src/data/research.js"></script>
+<script src="src/engine/worldgen.js"></script>
+<script src="src/game/market.js"></script>
+<script src="src/game/state.js"></script>
+<script src="src/game/economy.js"></script>
+<script src="src/game/combat.js"></script>
+<script src="src/game/orders.js"></script>
+<script src="src/game/diplomacy.js"></script>
+<script src="src/game/ai.js"></script>
+<script src="src/game/loop.js"></script>
+<script src="src/game/save.js"></script>
+<script src="src/ui/renderer.js"></script>
+<script src="src/ui/ui.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>
