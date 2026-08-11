@@ -121,6 +121,7 @@
   UI.bindInput = function () {
     var self = this, canvas = this.canvas;
     var dragging = false, moved = 0, lastX = 0, lastY = 0, pointers = {}, pinchDist = 0;
+    var vx = 0, vy = 0, lastMove = 0;
 
     function localPos(e) {
       var rect = canvas.getBoundingClientRect();
@@ -130,8 +131,11 @@
     canvas.addEventListener('pointerdown', function (e) {
       canvas.setPointerCapture(e.pointerId);
       pointers[e.pointerId] = localPos(e);
+      self.glide = null;                       // a new touch stops the drift
       if (Object.keys(pointers).length === 1) {
         dragging = true; moved = 0;
+        vx = 0; vy = 0;
+        lastMove = e.timeStamp || Date.now();
         var p = pointers[e.pointerId];
         lastX = p.x; lastY = p.y;
       } else {
@@ -158,6 +162,13 @@
       var dx = p.x - lastX, dy = p.y - lastY;
       moved += Math.abs(dx) + Math.abs(dy);
       self.renderer.panBy(dx, dy);
+      // Smoothed finger velocity in pixels per millisecond, for the throw.
+      var t = e.timeStamp || Date.now();
+      var span = Math.max(1, t - lastMove);
+      var w = clamp(span / 40, 0.15, 1);
+      vx += (dx / span - vx) * w;
+      vy += (dy / span - vy) * w;
+      lastMove = t;
       lastX = p.x; lastY = p.y;
     });
 
@@ -167,7 +178,11 @@
       if (Object.keys(pointers).length < 2) pinchDist = 0;
       if (!dragging || !was) { dragging = false; return; }
       dragging = false;
-      if (moved < 8) self.handleTap(was.x, was.y);
+      if (moved < 8) { self.handleTap(was.x, was.y); return; }
+      // Let a flick carry on and coast to a stop, the way a map should.
+      var stale = (e.timeStamp || Date.now()) - lastMove > 90;
+      var speed = Math.sqrt(vx * vx + vy * vy);
+      if (!stale && speed > 0.12) self.glide = { vx: vx, vy: vy };
     }
     canvas.addEventListener('pointerup', release);
     canvas.addEventListener('pointercancel', function (e) { delete pointers[e.pointerId]; dragging = false; });
@@ -1309,7 +1324,22 @@
 
   // --- per-frame -----------------------------------------------------------
 
+  /** Momentum after a flick: constant decay, cut off when it stops mattering. */
+  UI.stepGlide = function () {
+    var t = global.performance ? global.performance.now() : Date.now();
+    var dt = clamp(t - (this.lastGlideAt || t), 0, 64);
+    this.lastGlideAt = t;
+    if (!this.glide) return;
+    var g = this.glide;
+    this.renderer.panBy(g.vx * dt, g.vy * dt);
+    var decay = Math.pow(0.94, dt / 16.7);
+    g.vx *= decay;
+    g.vy *= decay;
+    if (Math.sqrt(g.vx * g.vx + g.vy * g.vy) < 0.02) this.glide = null;
+  };
+
   UI.frame = function () {
+    this.stepGlide();
     this.recomputeVisibility();
     this.refreshHud();
     this.drainLog();

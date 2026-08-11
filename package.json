@@ -6,9 +6,10 @@
   "scripts": {
     "start": "npx http-server . -p 8080 -c-1",
     "build:map": "node tools/buildmap.js",
-    "test": "node tools/simtest.js 60 && node tools/uitest.js",
+    "test": "node tools/simtest.js 60 && node tools/uitest.js && node tools/perftest.js",
     "test:sim": "node tools/simtest.js 60",
-    "test:ui": "node tools/uitest.js"
+    "test:ui": "node tools/uitest.js",
+    "test:perf": "node tools/perftest.js"
   },
   "license": "MIT"
 }

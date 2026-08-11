@@ -24,6 +24,21 @@
   var BASE_SCALE = 2;            // cached-raster pixels per map unit
   var VECTOR_ZOOM = 5;           // switch to vectors at or above this zoom
 
+  /*
+   * Phones report pixel ratios of 3 and up.  Rendering the map at native
+   * density triples the fill rate for a difference nobody can see on a moving
+   * map, and it is the difference between 60 and 30 frames a second.
+   */
+  var MAX_DPR = 2;
+
+  /*
+   * Terrain patterns are the most expensive thing the renderer draws, and
+   * while the map is being dragged nobody is studying the ground texture.  It
+   * is dropped during motion and faded back in once the map settles.
+   */
+  var DETAIL_DELAY = 90;         // ms of stillness before detail starts
+  var DETAIL_FADE = 220;         // ms to fade it back in
+
   var OCEAN = '#12283d';
   var OCEAN_DEEP = '#0e2033';
   var NEUTRAL = '#6a7480';
@@ -262,13 +277,29 @@
   };
 
   /** Lay the terrain pattern over a province's colour. */
-  Renderer.prototype.textureProvince = function (ctx, prov, path, screenScale) {
+  Renderer.prototype.textureProvince = function (ctx, prov, path, screenScale, alpha) {
     var pattern = this.patternFor(ctx, prov.terrain);
     if (!pattern) return;
-    // Aim for a tile roughly 30 screen pixels across at any zoom.
+    // Aim for a tile roughly 30 screen pixels across at any zoom.  The matrix
+    // only depends on the scale, so it is rebuilt when the zoom changes rather
+    // than once per province per frame.
     if (global.DOMMatrix && pattern.setTransform) {
-      var s = 30 / (TILE * screenScale);
-      pattern.setTransform(new global.DOMMatrix([s, 0, 0, s, 0, 0]));
+      if (this._patternScale !== screenScale) {
+        this._patternScale = screenScale;
+        this._patternMatrix = new global.DOMMatrix([
+          30 / (TILE * screenScale), 0, 0, 30 / (TILE * screenScale), 0, 0
+        ]);
+        this._patternStamped = null;
+      }
+      if (this._patternStamped !== pattern) pattern.setTransform(this._patternMatrix);
+    }
+    if (alpha !== undefined && alpha < 1) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = pattern;
+      ctx.fill(path);
+      ctx.restore();
+      return;
     }
     ctx.fillStyle = pattern;
     ctx.fill(path);
@@ -372,7 +403,7 @@
   // --- camera --------------------------------------------------------------
 
   Renderer.prototype.resize = function () {
-    var dpr = global.devicePixelRatio || 1;
+    var dpr = Math.min(global.devicePixelRatio || 1, MAX_DPR);
     var rect = this.canvas.getBoundingClientRect();
     this.canvas.width = Math.round(rect.width * dpr);
     this.canvas.height = Math.round(rect.height * dpr);
@@ -408,10 +439,25 @@
     };
   };
 
+  function now() {
+    return global.performance ? global.performance.now() : Date.now();
+  }
+
+  /** Called whenever the view moves, so detail knows to stand down. */
+  Renderer.prototype.noteMotion = function () { this.lastMotion = now(); };
+
+  /** 0 while the map is moving, easing to 1 once it has settled. */
+  Renderer.prototype.detailAlpha = function () {
+    var since = now() - (this.lastMotion || 0);
+    if (since < DETAIL_DELAY) return 0;
+    return clamp((since - DETAIL_DELAY) / DETAIL_FADE, 0, 1);
+  };
+
   Renderer.prototype.panBy = function (dx, dy) {
     this.camera.x -= dx / this.camera.zoom;
     this.camera.y -= dy / this.camera.zoom;
     this.clampCamera();
+    this.noteMotion();
   };
 
   Renderer.prototype.zoomAt = function (factor, sx, sy) {
@@ -421,6 +467,7 @@
     this.camera.x += before.x - after.x;
     this.camera.y += before.y - after.y;
     this.clampCamera();
+    this.noteMotion();
   };
 
   Renderer.prototype.centerOn = function (provinceId, zoom) {
@@ -430,6 +477,7 @@
     this.camera.y = p.cy;
     if (zoom) this.camera.zoom = clamp(zoom, this.minZoom, this.maxZoom);
     this.clampCamera();
+    this.noteMotion();
   };
 
   /** The map rectangle currently on screen, with a margin. */
@@ -495,6 +543,7 @@
     ctx.scale(z, z);
     if (z < VECTOR_ZOOM) {
       ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(this.baseLayer, 0, 0, state.mapW, state.mapH);
     } else {
       this.drawVector(ctx, ui, z);
@@ -514,6 +563,7 @@
     var box = this.viewBox(2);
     var visible = [];
     var i;
+    var detail = this.detailAlpha();
     this.drawShelf(ctx, z, box);
     for (i = 0; i < state.provinces.length; i++) {
       var p = state.provinces[i];
@@ -522,7 +572,7 @@
       var path = this.pathFor(p);
       ctx.fillStyle = this.fillFor(p);
       ctx.fill(path);
-      this.textureProvince(ctx, p, path, z);
+      if (detail > 0.01) this.textureProvince(ctx, p, path, z, detail);
     }
     this.strokeBorders(ctx, z, box);
 

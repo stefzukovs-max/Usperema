@@ -152,13 +152,27 @@ country names are set across the map in atlas style: biggest first, with any
 label that would collide with one already placed simply dropped. City dots and
 stack markers thin out as the view widens so the world view stays legible.
 
+**Smoothness.** Those terrain patterns are by far the most expensive thing the
+renderer draws — measured on a phone viewport they alone took panning from 60
+to 30 frames a second. Two things keep the map fluid:
+
+- the canvas is capped at 2× pixel density, because phones report 3× and above
+  and the extra pixels cost triple the fill rate for a difference nobody can
+  see on a map in motion;
+- terrain detail stands down while the view is moving and fades back in 90 ms
+  after it settles, so a drag is cheap and a stationary map is fully detailed.
+
+Dragging also has momentum: a flick keeps coasting and decays to a stop instead
+of stopping dead under your finger.
+
 ## Tests
 
 ```bash
-npm test                       # both suites
+npm test                       # all three suites
 
 node tools/simtest.js 80       # headless: run 80 game days, assert invariants
 node tools/uitest.js           # headless Chromium: click through every screen
+node tools/perftest.js         # headless Chromium: frame times on a phone
 ```
 
 `simtest` builds a world, runs it forward with no player input, and checks every
@@ -175,6 +189,12 @@ declares war through the confirmation dialog and checks the treaty really
 changed, opens every screen, runs the clock at 16×, round-trips a save, checks
 the desktop layout for horizontal overflow, and fails on any console error.
 Screenshots land in `tools/shots/`.
+
+`perftest` runs the game at a 390x844 phone viewport at 3x pixel density with
+the clock at 16x, samples real frame deltas at four zoom levels including a
+continuous pan, and fails if more than 2% of frames missed the 60 fps budget.
+It measures the dropped-frame rate rather than an average, because an average
+hides exactly the stutter a player notices.
 
 `buildmap` checks itself too: it verifies fifteen real capitals land inside a
 province owned by the right country, that every traced province outline is a

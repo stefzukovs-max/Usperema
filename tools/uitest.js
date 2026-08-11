@@ -154,6 +154,45 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   else if (blocked.tested) console.log('border with ' + blocked.name + ' correctly closed while at peace');
   await page.screenshot({ path: path.join(SHOTS, '04-army.png') });
 
+  // Detail stands down while the map moves and comes back once it settles.
+  var detail = await page.evaluate(async function () {
+    var r = SWW.UI.renderer;
+    r.camera.zoom = 8;
+    r.panBy(-40, 0);
+    var moving = r.detailAlpha();
+    await new Promise(function (res) { setTimeout(res, 500); });
+    return { moving: moving, settled: r.detailAlpha() };
+  });
+  if (detail.moving !== 0) fail('terrain detail was not dropped while panning (' + detail.moving + ')');
+  if (detail.settled < 0.99) fail('terrain detail did not come back after settling (' + detail.settled + ')');
+  else console.log('detail defers while moving and returns when the map settles');
+
+  // A flick should coast rather than stop dead.
+  var glide = await page.evaluate(async function () {
+    var canvas = document.getElementById('map');
+    var rect = canvas.getBoundingClientRect();
+    var y = rect.top + rect.height / 2;
+    var startX = rect.left + rect.width * 0.75;
+    function send(type, x, t) {
+      canvas.dispatchEvent(new PointerEvent(type, {
+        pointerId: 1, clientX: x, clientY: y, bubbles: true, pointerType: 'touch'
+      }));
+    }
+    send('pointerdown', startX);
+    for (var i = 1; i <= 6; i++) {
+      send('pointermove', startX - i * 18);
+      await new Promise(function (r) { setTimeout(r, 16); });
+    }
+    send('pointerup', startX - 6 * 18);
+    var before = SWW.UI.renderer.camera.x;
+    var gliding = !!SWW.UI.glide;
+    await new Promise(function (r) { setTimeout(r, 350); });
+    return { gliding: gliding, travelled: Math.abs(SWW.UI.renderer.camera.x - before) };
+  });
+  if (!glide.gliding) fail('a flick did not start a glide');
+  else if (glide.travelled < 0.5) fail('the glide did not move the camera (' + glide.travelled + ')');
+  else console.log('flick coasts on after release (' + glide.travelled.toFixed(1) + ' map units)');
+
   // Build something and research something through the real code paths.
   var actions = await page.evaluate(function () {
     var s = SWW.game.current;
