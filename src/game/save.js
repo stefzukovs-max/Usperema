@@ -48,6 +48,8 @@
       market: state.market,
       offers: state.offers || [],
       reports: (state.reports || []).slice(0, 30),
+      commanders: state.commanders || [],
+      nextCommanderId: state.nextCommanderId || 0,
       log: state.log.slice(0, 120),
       armies: state.armies,
       armySeq: state.armySeq,
@@ -69,6 +71,9 @@
     state.market = data.market;
     state.offers = data.offers || [];
     state.reports = data.reports || [];
+    state.commanders = data.commanders || [];
+    state.nextCommanderId = data.nextCommanderId || 0;
+    IA.commanders.index(state);
     // Battles in progress are not saved; they re-form from the stacks present.
     state.battles = {};
     state.log = data.log || [];

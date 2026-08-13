@@ -20,6 +20,7 @@ var FILES = [
   'src/data/units.js',
   'src/data/buildings.js',
   'src/data/research.js',
+  'src/data/commanders.js',
   'src/engine/mapdata.js',
   'src/engine/worldgen.js',
   'src/game/diplomacy.js',
@@ -30,6 +31,7 @@ var FILES = [
   'src/game/combat.js',
   'src/game/orders.js',
   'src/game/ai.js',
+  'src/game/commanders.js',
   'src/game/victory.js',
   'src/game/loop.js',
   'src/game/save.js'
@@ -484,6 +486,77 @@ if (player.alive && player.provinces.length) {
 
 // Supply that never binds is supply nobody has to think about.
 check('supply lines get cut over a war of this length', sawCutOff > 0);
+
+/*
+ * Officers.  The dangerous state here is a dangling link — a commander
+ * pointing at a stack that no longer exists, or two officers claiming the same
+ * one — because stacks are destroyed constantly.
+ */
+(function () {
+  var seen = {}, claimed = {};
+  var promoted = 0, specialists = 0;
+  for (var i = 0; i < state.commanders.length; i++) {
+    var c = state.commanders[i];
+    if (seen[c.id]) { check('officer ids are unique', false, c.id); break; }
+    seen[c.id] = true;
+    if (c.rank > 0) promoted++;
+    if (c.traits.length > 1) specialists++;
+    if (!state.nationById[c.nationId]) { check('an officer serves a real power', false, c.id); break; }
+    if (c.rank !== IA.commanders.rankAt(c.xp)) {
+      check('rank matches experience', false, c.name + ' rank ' + c.rank + ' xp ' + c.xp);
+      break;
+    }
+    if (!c.armyId) continue;
+    if (claimed[c.armyId]) { check('one officer to a stack', false, c.armyId); break; }
+    claimed[c.armyId] = true;
+    var army = IA.state.armyById(state, c.armyId);
+    if (!army) { check('officers point at stacks that exist', false, c.name + ' -> ' + c.armyId); break; }
+    if (army.commanderId !== c.id) {
+      check('the stack agrees who commands it', false, army.id + ' says ' + army.commanderId);
+      break;
+    }
+    if (army.ownerId !== c.nationId) {
+      check('an officer commands his own side', false, c.name + ' in ' + army.ownerId);
+      break;
+    }
+  }
+  // And the reverse link, which is the one that goes stale when a stack dies.
+  for (var a = 0; a < state.armies.length; a++) {
+    var arm = state.armies[a];
+    if (!arm.commanderId) continue;
+    if (!state.commanderById[arm.commanderId]) {
+      check('stacks do not keep a dead officer', false, arm.id + ' -> ' + arm.commanderId);
+      break;
+    }
+  }
+  check('officers exist at all', state.commanders.length > 20, String(state.commanders.length));
+  check('officers are promoted by fighting', promoted > 0);
+
+  /*
+   * A second speciality opens at Major General, which a forty-day war does not
+   * reliably reach, so the mechanism is driven directly rather than waited for.
+   */
+  var subject = null;
+  for (var s2 = 0; s2 < state.commanders.length; s2++) {
+    if (state.commanders[s2].armyId) { subject = state.commanders[s2]; break; }
+  }
+  if (!subject) { check('somebody is in command to promote', false); return; }
+  var army2 = IA.state.armyById(state, subject.armyId);
+  army2.inCombat = true;
+  subject.xp = IA.CommanderData.RANKS[2].xp - 0.01;
+  var traitsBefore = subject.traits.length;
+  var rng2 = new IA.RNG(7);
+  for (var t2 = 0; t2 < 20 && subject.rank < 2; t2++) IA.commanders.tick(state, rng2, 1);
+  check('an officer reaches Major General on experience', subject.rank >= 2, 'rank ' + subject.rank);
+  check('and picks up a second speciality there', subject.traits.length > traitsBefore,
+    traitsBefore + ' -> ' + subject.traits.length);
+  check('nobody holds the same speciality twice',
+    subject.traits.length === subject.traits.filter(function (v, i2, arr) {
+      return arr.indexOf(v) === i2;
+    }).length, subject.traits.join(','));
+  check('an officer changes how his stack fights',
+    IA.commanders.effectOf(state, army2).attack !== 1);
+})();
 
 /*
  * Battles have to be filed, and the numbers in them have to add up: you cannot

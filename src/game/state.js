@@ -124,6 +124,7 @@
     IA.diplomacy.refreshContacts(state);
     IA.weather.refresh(state);
     IA.economy.refreshSupply(state);
+    IA.commanders.init(state, rng);
     state.rngState = rng.s;
 
     pushLog(state, 'world', 'The war begins. ' + state.nationById[playerId].name +

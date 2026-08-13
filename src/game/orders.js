@@ -66,6 +66,7 @@
         base *= TERRAIN[destProv.terrain] ? TERRAIN[destProv.terrain].speed : 1;
       }
       base *= IA.weather.of(destProv).speed;
+      base *= IA.commanders.effectOf(state, army).speed;
     }
     return base;
   }

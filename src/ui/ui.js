@@ -677,6 +677,46 @@
       terrain ? readStat('⛰', Math.round((terrain.def - 1) * 100) + '%', terrain.name + ' defence modifier') : null
     ]));
 
+    /*
+     * Who is commanding, and the option to change it.  A stack under a
+     * methodical sapper is a different proposition from the same battalions
+     * under an aggressive one, so this belongs next to the strength numbers.
+     */
+    if (mine && IA.orders.armyDomain(army) === 'land') {
+      var boss = IA.commanders.commanderOf(state, army);
+      var free = IA.commanders.unassigned(state, state.playerId);
+      var cmdWrap = el('div', { class: 'command' });
+      if (boss) {
+        var traitText = boss.traits.map(function (id) {
+          var t = IA.CommanderData.TRAIT_BY_ID[id];
+          return t ? t.name : id;
+        }).join(', ');
+        cmdWrap.appendChild(el('div', { class: 'command-who' }, [
+          el('span', { class: 'command-name', text: IA.commanders.titleOf(boss) }),
+          el('span', { class: 'command-traits', text: traitText || 'no speciality' })
+        ]));
+        cmdWrap.appendChild(el('button', {
+          class: 'ghost', text: 'Relieve',
+          onclick: function () { IA.commanders.release(state, army.id); self.renderPanel(); }
+        }));
+      } else if (free.length) {
+        var picker = el('div', { class: 'inline-actions' });
+        free.slice(0, 4).forEach(function (c) {
+          picker.appendChild(el('button', {
+            class: 'ghost', text: 'Give to ' + IA.commanders.titleOf(c),
+            onclick: function () { IA.commanders.assign(state, c.id, army); self.renderPanel(); }
+          }));
+        });
+        cmdWrap.appendChild(el('div', { class: 'command-who' },
+          el('span', { class: 'command-traits', text: 'No officer commands this stack.' })));
+        cmdWrap.appendChild(picker);
+      } else {
+        cmdWrap.appendChild(el('div', { class: 'command-who' },
+          el('span', { class: 'command-traits', text: 'No officer commands this stack, and none is free.' })));
+      }
+      wrap.appendChild(section('Command', cmdWrap));
+    }
+
     if (mine && army.supplied === false) {
       wrap.appendChild(el('div', { class: 'notice bad' },
         'Out of supply. This stack is losing men every hour and fights at ' +
@@ -1143,6 +1183,7 @@
     var views = {
       'War aims': function () { return self.buildWarAims(); },
       Battles: function () { return self.buildBattleReports(); },
+      Officers: function () { return self.buildOfficers(); },
       Log: function () { return self.buildLogView(); },
       Ranking: function () { return self.buildRanking(); },
       Army: function () { return self.buildArmyOverview(); },
@@ -1242,6 +1283,60 @@
       ]));
     });
     return list;
+  };
+
+  /**
+   * The officer list: who you have, what they are good at, and what they are
+   * commanding.  Tapping one goes to his stack.
+   */
+  UI.buildOfficers = function () {
+    var self = this, state = this.state;
+    var me = state.nationById[state.playerId];
+    var wrap = el('div', { class: 'officers' });
+    var mine = IA.commanders.commandersOf(state, me.id);
+    var cap = IA.commanders.capFor(me);
+
+    wrap.appendChild(el('div', { class: 'notice' },
+      mine.length + ' of ' + cap + ' officers. Another is brought forward when there ' +
+      'is room and ' + Math.round(IA.commanders.PROMOTE_COST) + ' in the treasury. ' +
+      'An officer lost with his command is often lost for good.'));
+
+    if (!mine.length) {
+      wrap.appendChild(el('div', { class: 'muted', text: 'You have no officers.' }));
+      return wrap;
+    }
+    mine.sort(function (a, b) { return b.xp - a.xp; });
+    mine.forEach(function (c) {
+      var army = c.armyId ? IA.state.armyById(state, c.armyId) : null;
+      var next = IA.CommanderData.RANKS[c.rank + 1];
+      var toNext = next ? clamp((c.xp - IA.CommanderData.RANKS[c.rank].xp) /
+        (next.xp - IA.CommanderData.RANKS[c.rank].xp), 0, 1) : 1;
+      var traits = el('div', { class: 'officer-traits' });
+      c.traits.forEach(function (id) {
+        var t = IA.CommanderData.TRAIT_BY_ID[id];
+        if (t) traits.appendChild(el('span', { class: 'tag', text: t.name, title: t.desc }));
+      });
+      wrap.appendChild(el('button', {
+        class: 'officer' + (army ? '' : ' idle'),
+        onclick: function () {
+          if (!army) return;
+          self.closeModal();
+          self.selectArmy(army.id);
+          self.renderer.centerOn(army.provinceId, Math.max(self.renderer.camera.zoom, 8));
+        }
+      }, [
+        el('div', { class: 'officer-head' }, [
+          el('span', { class: 'officer-name', text: IA.commanders.titleOf(c) }),
+          el('span', { class: 'officer-post', text: army ? army.name : 'unattached' })
+        ]),
+        traits,
+        el('div', { class: 'officer-xp' }, [
+          el('span', { class: 'muted', text: next ? 'to ' + next.name : 'at the top' }),
+          progressBar(toNext, 'ok')
+        ])
+      ]));
+    });
+    return wrap;
   };
 
   UI.buildLogView = function () {

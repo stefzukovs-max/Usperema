@@ -97,7 +97,10 @@
     for (var a = 0; a < side.armies.length; a++) {
       var army = side.armies[a];
       var us = unitsAlive(army);
-      var moraleMul = 0.6 + 0.4 * clamp(IA.state.armyStrength(army).ratio, 0, 1);
+      var ratio = clamp(IA.state.armyStrength(army).ratio, 0, 1);
+      var led = IA.commanders.effectOf(state, army);
+      // An inspiring officer tells most when the stack has been cut about.
+      var moraleMul = 0.6 + 0.4 * ratio + led.resolve * (1 - ratio);
       // Men who have not been fed or resupplied do not press an attack home.
       if (army.supplied === false) moraleMul *= IA.economy.UNSUPPLIED_ATTACK;
       for (var u = 0; u < us.length; u++) {
@@ -107,7 +110,8 @@
         if (opts.meleeOnly && t.range > 0 && t.cat !== 'sea') continue;
         var per = 0;
         for (var cat in foeComp.frac) per += foeComp.frac[cat] * (t.atk[cat] || 0);
-        raw += per * (g.hp / t.hp) * moraleMul * (1 + techAtkBonus(nation, t));
+        var lead = led.attack * (t.range > 0 ? led.artillery : 1);
+        raw += per * (g.hp / t.hp) * moraleMul * lead * (1 + techAtkBonus(nation, t));
       }
     }
     if (raw <= 0) return 0;
@@ -134,6 +138,7 @@
       var farmy = foe.armies[f];
       var fus = unitsAlive(farmy);
       var entrench = farmy.entrench || 0;
+      var fled = IA.commanders.effectOf(state, farmy);
       for (var v = 0; v < fus.length; v++) {
         var fg = fus[v];
         var ft = UnitData.BY_ID[fg.typeId];
@@ -141,8 +146,9 @@
         var defVal = (ft.def[defCat] || 1);
         defVal *= (ft.domain === 'land' && !prov.isSea) ? terrainDef : 1;
         defVal *= 1 + entrench * 0.45 + bunker;
+        defVal *= fled.defence;
         if (foeNation) defVal *= 1 + techDefBonus(foeNation, ft);
-        var dmg = raw * share * (DEF_K / (DEF_K + defVal));
+        var dmg = raw * share * (DEF_K / (DEF_K + defVal)) * fled.damageTaken;
         fg.hp -= dmg;
         dealt += dmg;
       }
@@ -165,7 +171,11 @@
         kept.push(g);
       }
       army.units = kept;
-      if (kept.length === 0) { state.armies.splice(i, 1); removed = true; }
+      if (kept.length === 0) {
+        if (army.commanderId && state.lossRng) IA.commanders.armyLost(state, state.lossRng, army);
+        state.armies.splice(i, 1);
+        removed = true;
+      }
     }
     if (removed) IA.state.touchArmies(state);
   }

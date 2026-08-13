@@ -296,6 +296,8 @@
       // Conditions cost men whether or not the supply is getting through; a
       // blizzard does not care that the railhead is intact.
       var rate = (army.supplied ? 0 : ARMY_ATTRITION) + IA.weather.of(prov).attrition;
+      // A good quartermaster finds supply where the map says there is none.
+      rate *= IA.commanders.effectOf(state, army).attrition;
       if (rate <= 0) continue;
       for (var u = 0; u < army.units.length; u++) {
         var g = army.units[u];
@@ -435,7 +437,8 @@
     for (var i = 0; i < state.armies.length; i++) {
       var army = state.armies[i];
       if (army.path.length || army.inCombat) { army.entrench = Math.max(0, army.entrench - 0.25 * hours); continue; }
-      army.entrench = Math.min(1, army.entrench + 0.035 * hours);
+      army.entrench = Math.min(1, army.entrench +
+        0.035 * hours * IA.commanders.effectOf(state, army).entrench);
     }
   }
 

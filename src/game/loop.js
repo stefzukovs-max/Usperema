@@ -12,6 +12,9 @@
   function advance(state, hours) {
     if (state.gameOver) return;
     var rng = new IA.RNG(state.rngState);
+    // combat.reconcile is called from several places that have no rng of their
+    // own, and losing a stack has to decide the fate of its officer.
+    state.lossRng = rng;
     var remaining = hours;
     var guard = 0;
     while (remaining > 0.0001 && guard++ < 512) {
@@ -24,6 +27,7 @@
       if (state.gameOver) break;
     }
     state.rngState = rng.s;
+    state.lossRng = null;
   }
 
   function stepHour(state, rng, hours) {
@@ -39,12 +43,14 @@
     IA.economy.tickMorale(state, hours);
     IA.market.tick(state, rng, hours);
     IA.diplomacy.tickRelations(state, rng, hours);
+    IA.commanders.tick(state, rng, hours);
     IA.ai.tick(state, rng, hours);
   }
 
   function stepDay(state, rng) {
     IA.weather.refresh(state);
     IA.economy.refreshSupply(state);
+    IA.commanders.tickDaily(state, rng);
     for (var i = 0; i < state.nations.length; i++) {
       var nation = state.nations[i];
       if (!nation.alive) continue;

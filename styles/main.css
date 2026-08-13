@@ -590,3 +590,21 @@ input { font: inherit; }
 .report-side.mine .report-name { color: var(--accent-2); font-weight: 600; }
 .report-name { min-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .report-loss { color: var(--dim); min-width: 104px; }
+
+/* Officers: who commands what, and what they are good at. */
+.officers { display: flex; flex-direction: column; gap: 8px; }
+.officer {
+  background: rgba(0,0,0,.22); border-radius: 4px; padding: 9px 12px;
+  border-left: 3px solid var(--accent); text-align: left; width: 100%; cursor: pointer;
+}
+.officer.idle { border-left-color: var(--line); opacity: .78; cursor: default; }
+.officer-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.officer-name { font-weight: 600; font-size: 14px; }
+.officer-post { font-size: 12px; color: var(--dim); white-space: nowrap; }
+.officer-traits { display: flex; flex-wrap: wrap; gap: 5px; margin: 6px 0; }
+.officer-xp { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+
+.command { display: flex; flex-direction: column; gap: 7px; }
+.command-who { display: flex; flex-direction: column; gap: 2px; }
+.command-name { font-weight: 600; }
+.command-traits { font-size: 12px; color: var(--dim); }
