@@ -30,7 +30,8 @@
       nations.push({
         id: n.id, alive: n.alive, isPlayer: n.isPlayer, ai: n.ai,
         resources: n.resources, research: n.research, researching: n.researching,
-        relations: n.relations, treaties: n.treaties, provinces: n.provinces,
+        relations: n.relations, treaties: n.treaties, treatyUntil: n.treatyUntil,
+        reputation: n.reputation, provinces: n.provinces,
         vp: n.vp, warCount: n.warCount || 0, nextTurn: n.nextTurn,
         capitalProvince: n.capitalProvince
       });
@@ -98,6 +99,8 @@
       n.researching = sn.researching || null;
       n.relations = sn.relations || {};
       n.treaties = sn.treaties || {};
+      n.treatyUntil = sn.treatyUntil || {};
+      n.reputation = sn.reputation === undefined ? 75 : sn.reputation;
       n.provinces = sn.provinces || [];
       n.vp = sn.vp || 0;
       n.warCount = sn.warCount || 0;

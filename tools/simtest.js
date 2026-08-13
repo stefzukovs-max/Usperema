@@ -206,6 +206,62 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
   IA.weather.refresh(state);
 })();
 
+/*
+ * Standing and the term of a pact.
+ *
+ * Two neutrals are used so nothing here disturbs the war about to be run, and
+ * the pair is put back afterwards.
+ */
+(function () {
+  var a = 'SWE', b = 'NOR';
+  if (!state.nationById[a] || !state.nationById[b]) { check('neutrals exist to test with', false); return; }
+  var was = state.time;
+  var repBefore = IA.diplomacy.reputation(state, a);
+  check('a power starts with a reputation', repBefore === IA.diplomacy.REPUTATION_BASE, String(repBefore));
+
+  // Signing sets a term rather than binding for ever.
+  IA.diplomacy.setTreaty(state, a, b, 'peace');
+  IA.diplomacy.proposeTreaty(state, a, b, 'nap');
+  IA.diplomacy.setTreaty(state, a, b, 'nap');
+  IA.diplomacy.setRelation(state, a, b, 40);
+  var until = state.time + IA.diplomacy.TERM.nap;
+  state.nationById[a].treatyUntil[b] = until;
+  state.nationById[b].treatyUntil[a] = until;
+  check('a pact has an end date', IA.diplomacy.treatyExpiry(state, a, b) > state.time);
+
+  // Letting it run out is not a betrayal and costs no standing.
+  state.time = until + 1;
+  IA.diplomacy.expireTreaties(state);
+  check('a pact lapses when its term is up', IA.state.treaty(state, a, b) === 'peace',
+    IA.state.treaty(state, a, b));
+  check('letting a pact lapse costs no standing',
+    IA.diplomacy.reputation(state, a) === repBefore, String(IA.diplomacy.reputation(state, a)));
+
+  // Tearing one up is.
+  IA.diplomacy.setTreaty(state, a, b, 'alliance');
+  IA.diplomacy.setRelation(state, a, b, 60);
+  IA.diplomacy.declareWar(state, a, b, 'test');
+  var repAfter = IA.diplomacy.reputation(state, a);
+  check('turning on an ally costs standing', repAfter < repBefore - 20,
+    repBefore + ' -> ' + repAfter);
+  check('and the world can see it', IA.diplomacy.reputationLabel(repAfter) !== 'Trusted',
+    IA.diplomacy.reputationLabel(repAfter));
+
+  // And standing comes back, slowly, if you behave.
+  var rng = new IA.RNG(1);
+  for (var d = 0; d < 60; d++) IA.diplomacy.tickRelations(state, rng, 24);
+  check('standing recovers with good conduct', IA.diplomacy.reputation(state, a) > repAfter,
+    repAfter + ' -> ' + IA.diplomacy.reputation(state, a));
+
+  // Put the pair back the way they were.
+  IA.diplomacy.setTreaty(state, a, b, 'peace');
+  IA.diplomacy.setRelation(state, a, b, 0);
+  state.nationById[a].reputation = repBefore;
+  state.nationById[b].reputation = repBefore;
+  state.time = was;
+  IA.diplomacy.refreshWarCounts(state);
+})();
+
 check('every nation has a capital province', state.nations.every(function (n) {
   return state.provinces[n.capitalProvince] && state.provinces[n.capitalProvince].nationId === n.id;
 }));

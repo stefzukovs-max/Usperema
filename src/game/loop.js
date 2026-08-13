@@ -50,6 +50,7 @@
       if (!nation.alive) continue;
       if (nation.isPlayer) nation.resources.gold += DAILY_GOLD;
     }
+    IA.diplomacy.expireTreaties(state);
     IA.diplomacy.refreshWarCounts(state);
     IA.diplomacy.refreshContacts(state);
     IA.state.recomputeVP(state);

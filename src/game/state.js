@@ -75,6 +75,13 @@
       // thirty thousand pointless entries in every save.
       n.relations = {};
       n.treaties = {};
+      // When each pact runs out, keyed the same sparse way.
+      n.treatyUntil = {};
+      /*
+       * Standing. A power that tears up its pacts and attacks the unprovoked
+       * finds nobody will sign with it and everybody will sign against it.
+       */
+      n.reputation = 75;
       n.income = null;
       n.upkeep = null;
       n.power = 0;

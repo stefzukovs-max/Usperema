@@ -785,6 +785,22 @@
     var me = state.nationById[state.playerId];
     var wrap = el('div', { class: 'modal-sections' });
 
+    // Your own standing, and what it is currently costing you.
+    var myRep = IA.diplomacy.reputation(state, me.id);
+    wrap.appendChild(el('div', { class: 'stat-grid' }, [
+      stat('Your standing', IA.diplomacy.reputationLabel(myRep) + ' (' + Math.round(myRep) + ')'),
+      stat('Wars', String(me.warCount || 0)),
+      stat('Pacts', String(Object.keys(me.treaties).filter(function (id) {
+        return me.treaties[id] === 'nap' || me.treaties[id] === 'alliance';
+      }).length))
+    ]));
+    if (myRep < IA.diplomacy.REPUTATION_BASE - 10) {
+      wrap.appendChild(el('div', { class: 'notice warn' },
+        'Your word is not what it was. Powers weigh standing when they decide ' +
+        'whether to sign with you, and it recovers only slowly — about a point ' +
+        'a fortnight — while you keep the pacts you have.'));
+    }
+
     var offers = state.offers || [];
     if (offers.length) {
       var inbox = el('div', { class: 'offer-list' });
@@ -905,8 +921,17 @@
         actions.appendChild(el('button', {
           class: 'danger-btn', text: 'Declare war',
           onclick: function () {
+            var had = IA.state.treaty(state, me.id, n.id);
+            var cost = had === 'alliance'
+              ? 'You are allied with ' + n.name + '. Tearing that up will be seen everywhere and ' +
+                'will cost you a great deal of standing.'
+              : had === 'nap'
+                ? 'You have a non-aggression pact with ' + n.name + '. Breaking it will cost you standing.'
+                : (n.warCount > 0
+                  ? 'They are already at war, so joining in costs you little standing.'
+                  : 'They have given you no cause. An unprovoked war will cost you standing.');
             self.confirm('Confirm action',
-              'This will declare an unprovoked war against ' + n.name + '. Do you wish to proceed?',
+              'This will declare war on ' + n.name + '. ' + cost + ' Do you wish to proceed?',
               function () {
                 IA.diplomacy.declareWar(state, me.id, n.id, 'a formal declaration');
                 self.refreshModal();
@@ -924,7 +949,9 @@
             neighbour ? el('span', { class: 'tag dim', text: 'border' }) : null
           ]),
           el('div', { class: 'nation-meta', text: n.vp + ' VP · ' + n.provinces.length + ' prov · ' +
-            Math.round(IA.state.nationPower(state, n.id)) + ' mil' }),
+            Math.round(IA.state.nationPower(state, n.id)) + ' mil · ' +
+            IA.diplomacy.reputationLabel(IA.diplomacy.reputation(state, n.id)) +
+            treatyTerm(state, me.id, n.id) }),
           relationBar(rel)
         ]),
         actions
@@ -1379,6 +1406,13 @@
       el('span', { class: 'rs-icon', text: icon }),
       el('span', { class: 'rs-val', text: value })
     ]);
+  }
+
+  /** How long a pact with this power still has to run, if it has a term. */
+  function treatyTerm(state, me, other) {
+    var until = IA.diplomacy.treatyExpiry(state, me, other);
+    if (!until || until <= state.time) return '';
+    return ' · pact ' + Math.ceil((until - state.time) / 24) + 'd left';
   }
 
   /** Weather with what it does to a fight, since that is why it is shown. */
