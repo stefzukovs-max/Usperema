@@ -109,9 +109,15 @@
     search.oninput = function () { render(search.value); };
     render('');
 
+    var settings = buildSettings();
+
     doc.getElementById('startBtn').onclick = function () {
       var seed = doc.getElementById('seedInput').value.trim();
-      startNewGame({ seed: seed || String(Date.now()), playerNation: chosen.nation });
+      startNewGame({
+        seed: seed || String(Date.now()),
+        playerNation: chosen.nation,
+        settings: settings.value()
+      });
     };
 
     var info = IA.save.peek();
@@ -127,6 +133,114 @@
     } else {
       cont.style.display = 'none';
     }
+  }
+
+  /*
+   * Campaign settings.
+   *
+   * Each is a small set of named choices rather than a slider, because "a
+   * fortnight" and "the whole war" are decisions a player can make and 0.7 is
+   * not.  The chosen values are handed to createGame and read from state
+   * everywhere afterwards, so a short brutal war and a long cautious one are
+   * the same code with different numbers.
+   */
+  var SETTING_FIELDS = [
+    {
+      key: 'warYears', label: 'Length of the war',
+      note: 'When the guns stop and the leader takes the peace.',
+      options: [
+        { label: 'Short — 1 year', value: 1 },
+        { label: 'Historical — to Nov 1918', value: 4.3 },
+        { label: 'Long — 8 years', value: 8 }
+      ]
+    },
+    {
+      key: 'victoryShare', label: 'Victory threshold',
+      note: 'Share of the world needed to win outright.',
+      options: [
+        { label: 'A quarter', value: 0.25 },
+        { label: 'A third', value: 0.33 },
+        { label: 'Half', value: 0.5 }
+      ]
+    },
+    {
+      key: 'aggression', label: 'Appetite for war',
+      note: 'How readily the other powers declare.',
+      options: [
+        { label: 'Cautious', value: 0.5 },
+        { label: 'Ordinary', value: 1 },
+        { label: 'Rapacious', value: 2 }
+      ]
+    },
+    {
+      key: 'supplies', label: 'Opening stockpiles',
+      note: 'What everybody starts the war holding.',
+      options: [
+        { label: 'Lean', value: 0.6 },
+        { label: 'Ordinary', value: 1 },
+        { label: 'Ample', value: 1.8 }
+      ]
+    },
+    {
+      key: 'fogOfWar', label: 'Fog of war',
+      note: 'Whether you can see what you have no eyes on.',
+      options: [
+        { label: 'On', value: true },
+        { label: 'Off — show everything', value: false }
+      ]
+    }
+  ];
+
+  function buildSettings() {
+    var panel = doc.getElementById('settingsPanel');
+    var grid = doc.getElementById('settingsGrid');
+    var toggle = doc.getElementById('settingsBtn');
+    var chosen = {};
+    var defaults = IA.state.DEFAULT_SETTINGS;
+
+    function render() {
+      grid.innerHTML = '';
+      SETTING_FIELDS.forEach(function (field) {
+        var row = doc.createElement('div');
+        row.className = 'setting';
+        var head = doc.createElement('div');
+        head.className = 'setting-head';
+        head.textContent = field.label;
+        var note = doc.createElement('div');
+        note.className = 'setting-note';
+        note.textContent = field.note;
+        var opts = doc.createElement('div');
+        opts.className = 'setting-options';
+        field.options.forEach(function (opt) {
+          var b = doc.createElement('button');
+          b.className = 'setting-opt' + (chosen[field.key] === opt.value ? ' on' : '');
+          b.textContent = opt.label;
+          b.onclick = function () { chosen[field.key] = opt.value; render(); };
+          opts.appendChild(b);
+        });
+        row.appendChild(head);
+        row.appendChild(note);
+        row.appendChild(opts);
+        grid.appendChild(row);
+      });
+    }
+
+    function reset() {
+      SETTING_FIELDS.forEach(function (f) { chosen[f.key] = defaults[f.key]; });
+      render();
+    }
+
+    toggle.onclick = function () {
+      panel.classList.toggle('show');
+      toggle.textContent = panel.classList.contains('show') ? 'Hide settings' : 'Campaign settings';
+    };
+    doc.getElementById('settingsReset').onclick = reset;
+    reset();
+    return { value: function () {
+      var out = {};
+      for (var k in chosen) out[k] = chosen[k];
+      return out;
+    } };
   }
 
   function startNewGame(opts) {

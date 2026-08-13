@@ -398,7 +398,9 @@
     // the opening days; the map needs time to settle.
     var mayDeclare = state.time > 72;      // a few days of calm before the first shot
     var contacts = nation.contacts || [];
-    if (mayDeclare && contacts.length && rng.chance(nation.aggression * 0.16)) {
+    // The campaign settings scale everyone's appetite for a new war at once.
+    var appetite = nation.aggression * 0.16 * ((state.settings && state.settings.aggression) || 1);
+    if (mayDeclare && contacts.length && rng.chance(appetite)) {
       var prey = null;
       // Only bordering nations are worth a war; there is no way to reach the
       // rest without a navy and a reason.

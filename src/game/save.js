@@ -52,6 +52,7 @@
       commanders: state.commanders || [],
       operations: state.operations || [],
       nextOpId: state.nextOpId || 0,
+      settings: state.settings || null,
       nextCommanderId: state.nextCommanderId || 0,
       log: state.log.slice(0, 120),
       armies: state.armies,
@@ -65,7 +66,9 @@
   function round2(v) { return Math.round(v * 100) / 100; }
 
   function deserialise(data) {
-    var state = IA.state.createGame({ seed: data.seed, playerNation: data.playerId });
+    var state = IA.state.createGame({
+      seed: data.seed, playerNation: data.playerId, settings: data.settings || undefined
+    });
     state.time = data.time;
     state.speed = data.speed || '1x';
     state.rngState = data.rngState;

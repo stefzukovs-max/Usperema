@@ -78,6 +78,19 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   await page.waitForSelector('#menu.show');
   await page.screenshot({ path: path.join(SHOTS, '01-menu.png') });
 
+  /*
+   * Campaign settings have to reach the simulation, not merely render.  The
+   * defaults are changed through the actual controls and the resulting world is
+   * checked against them below.
+   */
+  await page.click('#settingsBtn');
+  if (!(await page.locator('#settingsPanel.show').count())) fail('settings panel did not open');
+  await page.click('.setting:has-text("Victory threshold") .setting-opt:has-text("Half")');
+  await page.click('.setting:has-text("Length of the war") .setting-opt:has-text("Short")');
+  await page.click('.setting:has-text("Fog of war") .setting-opt:has-text("Off")');
+  var chosenCount = await page.locator('.setting-opt.on').count();
+  if (chosenCount !== 5) fail('expected one choice per setting, got ' + chosenCount);
+
   // Deterministic seed and a fixed nation so runs are comparable.
   await page.fill('#seedInput', 'ui-test');
   await page.click('.nation-card:has-text("Austria-Hungary")');
@@ -96,6 +109,36 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   });
   if (info.player !== 'AUH') fail('nation selection ignored, got ' + info.player);
   if (info.provinces < 1) fail('player owns no provinces');
+
+  var applied = await page.evaluate(function () {
+    var s = IA.game.current;
+    IA.UI.recomputeVisibility(true);
+    var unseen = 0;
+    for (var i = 0; i < s.provinces.length; i++) if (!IA.UI.visible[i]) unseen++;
+    return {
+      share: s.settings.victoryShare,
+      ratio: s.victoryVP / s.totalVP,
+      armistice: IA.victory.armisticeDay(s),
+      fog: s.settings.fogOfWar,
+      unseen: unseen
+    };
+  });
+  if (applied.share !== 0.5) fail('victory threshold setting was not carried into the game');
+  if (Math.abs(applied.ratio - 0.5) > 0.01) {
+    fail('victory points do not match the chosen threshold (' + applied.ratio.toFixed(3) + ')');
+  }
+  if (applied.armistice > 400) fail('short war setting ignored, armistice on day ' + applied.armistice);
+  if (applied.fog !== false) fail('fog-of-war setting was not carried into the game');
+  if (applied.unseen !== 0) fail('fog is off but ' + applied.unseen + ' provinces are hidden');
+  console.log('campaign settings reached the simulation (victory at ' +
+    Math.round(applied.ratio * 100) + '%, armistice day ' + applied.armistice + ', fog off)');
+
+  // Put fog back on for the rest of the run, so everything below is tested on
+  // the path a default campaign actually takes.
+  await page.evaluate(function () {
+    IA.game.current.settings.fogOfWar = true;
+    IA.UI.recomputeVisibility(true);
+  });
   console.log('started as ' + info.player + ' with ' + info.provinces + ' provinces, ' +
     info.armies + ' stacks on the map');
   await page.screenshot({ path: path.join(SHOTS, '02-map.png') });

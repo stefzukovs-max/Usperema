@@ -17,9 +17,10 @@
    * Everyone opens with the same core stockpile so a small nation is playable,
    * plus a modest bonus scaled to how much territory it actually holds.
    */
-  function startingResources(nation) {
+  function startingResources(nation, multiplier) {
     var out = {};
-    var scale = 1 + Math.min(1.4, Math.sqrt(Math.max(1, nation.provinces.length)) * 0.16);
+    var scale = (1 + Math.min(1.4, Math.sqrt(Math.max(1, nation.provinces.length)) * 0.16)) *
+      (multiplier || 1);
     for (var k in START_RESOURCES) {
       out[k] = k === 'gold' ? START_RESOURCES[k] : Math.round(START_RESOURCES[k] * scale);
     }
@@ -33,9 +34,32 @@
     { id: '16x', label: '16x', hoursPerSecond: 16 / 3 }
   ];
 
+  /*
+   * How a campaign is set up before it starts.  These are read all over the
+   * simulation rather than baked in, so a short brutal war and a long cautious
+   * one are the same code with different numbers.
+   */
+  var DEFAULT_SETTINGS = {
+    victoryShare: 0.33,     // of the world's victory points, to win outright
+    warYears: 4.3,          // to the armistice; the historical war ran this long
+    aggression: 1,          // how readily the AI goes to war
+    supplies: 1,            // multiplier on everyone's opening stockpiles
+    fogOfWar: true
+  };
+
+  function settingsFrom(opts) {
+    var out = {};
+    for (var k in DEFAULT_SETTINGS) {
+      out[k] = (opts && opts[k] !== undefined) ? opts[k] : DEFAULT_SETTINGS[k];
+    }
+    out.armisticeDay = Math.round(out.warYears * 365);
+    return out;
+  }
+
   function createGame(opts) {
     opts = opts || {};
     var seed = opts.seed != null ? opts.seed : String(Date.now());
+    var settings = settingsFrom(opts.settings);
     var rng = new IA.RNG(seed);
     var world = IA.worldgen.generate(rng, opts.world);
 
@@ -60,6 +84,7 @@
       victoryVP: 0,
       totalVP: 0,
       gameOver: null,
+      settings: settings,
       rngState: rng.s
     };
 
@@ -67,7 +92,7 @@
     for (i = 0; i < state.nations.length; i++) {
       n = state.nations[i];
       state.nationById[n.id] = n;
-      n.resources = startingResources(n);
+      n.resources = startingResources(n, settings.supplies);
       n.research = {};
       n.researching = null;
       // Relations and treaties are sparse: an absent entry means "neutral" and
@@ -121,9 +146,9 @@
     openingDiplomacy(state);
     IA.market.init(state, rng);
     recomputeVP(state);
-    // Taking a third of the world's victory points is already a colossal war;
-    // outlasting everyone else is the other way to win.
-    state.victoryVP = Math.round(state.totalVP * 0.33);
+    // A third of the world's victory points is already a colossal war, but the
+    // campaign settings can make it more or less than that.
+    state.victoryVP = Math.round(state.totalVP * settings.victoryShare);
     IA.diplomacy.refreshContacts(state);
     IA.weather.refresh(state);
     IA.economy.refreshSupply(state);
@@ -340,7 +365,8 @@
   }
 
   IA.state = {
-    createGame: createGame, spawnArmy: spawnArmy, province: province, nation: nation,
+    createGame: createGame, settingsFrom: settingsFrom, DEFAULT_SETTINGS: DEFAULT_SETTINGS,
+    spawnArmy: spawnArmy, province: province, nation: nation,
     armiesIn: armiesIn, allArmiesAt: allArmiesAt, armiesOf: armiesOf, armyById: armyById,
     armyStrength: armyStrength, armyPower: armyPower, nationPower: nationPower,
     armyIndex: armyIndex, touchArmies: touchArmies,

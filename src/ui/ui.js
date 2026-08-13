@@ -386,6 +386,12 @@
     var reach = 1 + IA.economy.techBonus(nation, 'vision');
     var seeds = [];
     var i, j;
+    // With fog off the whole map is open and none of the rest of this matters.
+    if (state.settings && state.settings.fogOfWar === false) {
+      for (i = 0; i < state.provinces.length; i++) vis[i] = true;
+      this.visible = vis;
+      return;
+    }
     for (i = 0; i < nation.provinces.length; i++) { vis[nation.provinces[i]] = true; seeds.push(nation.provinces[i]); }
     for (i = 0; i < state.armies.length; i++) {
       if (state.armies[i].ownerId !== state.playerId) continue;
