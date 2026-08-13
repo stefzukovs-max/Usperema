@@ -274,6 +274,7 @@
         snapshot.push({ side: engaged[e], strength: sideStrength(engaged[e]) });
         for (var m = 0; m < engaged[e].armies.length; m++) engaged[e].armies[m].inCombat = true;
       }
+      openBattle(state, prov, engaged, snapshot);
       // Each side concentrates on its strongest hostile opponent.
       for (var x = 0; x < engaged.length; x++) {
         var me = engaged[x], target = null, best = -1;
@@ -289,6 +290,128 @@
       }
       if (!state.battleProvinces) state.battleProvinces = {};
       state.battleProvinces[pid] = state.time;
+    }
+    closeFinishedBattles(state, byProv);
+  }
+
+  /*
+   * Battle reports.
+   *
+   * A battle is an engagement in one province, running from the hour hostile
+   * stacks first trade fire to the hour one of them is gone.  While it runs, a
+   * record accumulates what each side brought and what is left of it; when it
+   * ends the record is filed with who held the ground.
+   *
+   * Without this a war is a stream of one-line log entries and no way to tell a
+   * skirmish from a catastrophe.
+   */
+  var MAX_REPORTS = 60;
+  /*
+   * An hour in which nobody fires is not the end of a battle — a stack pulls
+   * back a province and comes on again, or the shooting pauses while
+   * reinforcements come up.  Without this grace a single fight over Panama City
+   * filed itself three times.
+   */
+  var BATTLE_LULL = 4;
+
+  function openBattle(state, prov, engaged, snapshot) {
+    if (!state.battles) state.battles = {};
+    var battle = state.battles[prov.id];
+    if (!battle) {
+      battle = state.battles[prov.id] = {
+        provinceId: prov.id, province: prov.name,
+        startedAt: state.time, lastAt: state.time, sides: {}
+      };
+    }
+    battle.lastAt = state.time;
+    for (var i = 0; i < engaged.length; i++) {
+      var ownerId = engaged[i].ownerId;
+      var strength = snapshot[i].strength;
+      var side = battle.sides[ownerId];
+      if (!side) {
+        var nation = state.nationById[ownerId];
+        side = battle.sides[ownerId] = {
+          id: ownerId, name: nation ? nation.name : ownerId,
+          colour: nation ? nation.color : '#888',
+          committed: 0, peak: 0, remaining: 0
+        };
+      }
+      // Reinforcements count toward what was committed, not toward losses.
+      if (strength > side.peak) {
+        side.committed += strength - side.peak;
+        side.peak = strength;
+      }
+      side.remaining = strength;
+    }
+  }
+
+  function closeFinishedBattles(state, byProv) {
+    if (!state.battles) return;
+    for (var pid in state.battles) {
+      var battle = state.battles[pid];
+      if (battle.lastAt >= state.time - BATTLE_LULL) continue;   // still being fought
+      delete state.battles[pid];
+      fileReport(state, battle, byProv[pid] || []);
+    }
+  }
+
+  function fileReport(state, battle, stillThere) {
+    var ids = Object.keys(battle.sides);
+    if (ids.length < 2) return;
+
+    // Whoever still has troops in the province held it.
+    var holders = {};
+    for (var i = 0; i < stillThere.length; i++) holders[stillThere[i].ownerId] = true;
+
+    var sides = [], total = 0;
+    for (var k = 0; k < ids.length; k++) {
+      var s = battle.sides[ids[k]];
+      var lost = Math.max(0, s.committed - (holders[s.id] ? s.remaining : 0));
+      total += lost;
+      sides.push({
+        id: s.id, name: s.name, colour: s.colour,
+        committed: Math.round(s.committed), lost: Math.round(lost),
+        held: !!holders[s.id]
+      });
+    }
+    sides.sort(function (a, b) { return b.committed - a.committed; });
+
+    /*
+     * Who held the ground.  If more than one side is still standing there, the
+     * fighting stopped for some other reason — a ceasefire, usually — and
+     * calling the first of them the winner would be a lie.
+     */
+    var holders = [];
+    for (var w = 0; w < sides.length; w++) if (sides[w].held) holders.push(sides[w]);
+    var winner = holders.length === 1 ? holders[0] : null;
+    var outcome = holders.length === 1
+      ? winner.name + ' held ' + battle.province
+      : holders.length === 0
+        ? 'Both sides withdrew from ' + battle.province
+        : 'The fighting broke off with both sides still in ' + battle.province;
+
+    var report = {
+      id: 'b' + battle.provinceId + '_' + Math.round(battle.startedAt),
+      provinceId: battle.provinceId, province: battle.province,
+      from: battle.startedAt, to: battle.lastAt,
+      hours: Math.max(1, Math.round(battle.lastAt - battle.startedAt)),
+      sides: sides, casualties: Math.round(total),
+      winner: winner ? winner.id : null,
+      outcome: outcome
+    };
+
+    state.reports = state.reports || [];
+    state.reports.unshift(report);
+    if (state.reports.length > MAX_REPORTS) state.reports.length = MAX_REPORTS;
+
+    // Only shout about it if the player was in it, or it was a bloodbath.
+    var mine = false;
+    for (var m = 0; m < sides.length; m++) if (sides[m].id === state.playerId) mine = true;
+    if (mine || report.casualties > 400) {
+      IA.state.pushLog(state, mine ? 'combat' : 'world',
+        'The fighting at ' + battle.province + ' is over. ' + report.outcome +
+        '. ' + report.casualties + ' casualties.',
+        { provinceId: battle.provinceId, reportId: report.id });
     }
   }
 
@@ -478,7 +601,7 @@
 
   IA.combat = {
     tick: tick, transferProvince: transferProvince, checkElimination: checkElimination,
-    provinceDistance: provinceDistance, maxRange: maxRange,
+    provinceDistance: provinceDistance, maxRange: maxRange, MAX_REPORTS: MAX_REPORTS,
     captureHours: captureHours, reconcile: reconcile, composition: composition,
     dominantCat: dominantCat
   };

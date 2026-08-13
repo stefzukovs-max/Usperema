@@ -47,6 +47,7 @@
       gameOver: state.gameOver,
       market: state.market,
       offers: state.offers || [],
+      reports: (state.reports || []).slice(0, 30),
       log: state.log.slice(0, 120),
       armies: state.armies,
       armySeq: state.armySeq,
@@ -67,6 +68,9 @@
     state.gameOver = data.gameOver || null;
     state.market = data.market;
     state.offers = data.offers || [];
+    state.reports = data.reports || [];
+    // Battles in progress are not saved; they re-form from the stacks present.
+    state.battles = {};
     state.log = data.log || [];
     state.armies = data.armies || [];
     state.armySeq = data.armySeq || (state.armies.length + 1);

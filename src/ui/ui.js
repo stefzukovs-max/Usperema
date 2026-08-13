@@ -1142,6 +1142,7 @@
     var host = el('div', { class: 'tab-host' });
     var views = {
       'War aims': function () { return self.buildWarAims(); },
+      Battles: function () { return self.buildBattleReports(); },
       Log: function () { return self.buildLogView(); },
       Ranking: function () { return self.buildRanking(); },
       Army: function () { return self.buildArmyOverview(); },
@@ -1195,6 +1196,52 @@
       ]));
     });
     return wrap;
+  };
+
+  /**
+   * Engagements that have finished, newest first, with what each side put in
+   * and what came back out.  A one-line log entry cannot tell a skirmish from
+   * a catastrophe; this can.
+   */
+  UI.buildBattleReports = function () {
+    var self = this, state = this.state;
+    var list = el('div', { class: 'reports' });
+    var reports = state.reports || [];
+    if (!reports.length) {
+      list.appendChild(el('div', { class: 'muted', text: 'No battle has been fought to a finish yet.' }));
+      return list;
+    }
+    reports.forEach(function (r) {
+      var mine = r.sides.filter(function (s2) { return s2.id === state.playerId; })[0];
+      var rows = el('div', { class: 'report-sides' });
+      r.sides.forEach(function (side) {
+        var kept = side.committed > 0 ? (side.committed - side.lost) / side.committed : 0;
+        rows.appendChild(el('div', { class: 'report-side' + (side.id === state.playerId ? ' mine' : '') }, [
+          el('span', { class: 'chip', style: 'background:' + side.colour }),
+          el('span', { class: 'report-name', text: side.name }),
+          el('span', { class: 'report-loss', text: side.lost + ' lost of ' + side.committed }),
+          progressBar(kept, kept > 0.6 ? 'ok' : kept > 0.3 ? 'warn' : 'bad')
+        ]));
+      });
+      var t = util.fmtTime(r.from);
+      list.appendChild(el('div', {
+        class: 'report' + (mine ? (r.winner === state.playerId ? ' won' : ' lost') : ''),
+        onclick: function () {
+          self.closeModal();
+          self.selectProvince(r.provinceId);
+          self.renderer.centerOn(r.provinceId, Math.max(self.renderer.camera.zoom, 8));
+        }
+      }, [
+        el('div', { class: 'report-head' }, [
+          el('span', { class: 'report-place', text: r.province }),
+          el('span', { class: 'report-when', text: 'D' + t.day + ' · ' + r.hours + 'h · ' +
+            r.casualties + ' casualties' })
+        ]),
+        el('div', { class: 'report-outcome', text: r.outcome }),
+        rows
+      ]));
+    });
+    return list;
   };
 
   UI.buildLogView = function () {

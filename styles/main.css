@@ -572,3 +572,21 @@ input { font: inherit; }
 .aim-name { font-weight: 600; font-size: 14px; }
 .aim-note { font-size: 12px; color: var(--dim); text-align: right; }
 .aim-detail { font-size: 12px; color: var(--dim); margin: 3px 0 7px; }
+
+/* Battle reports: what each side put in, and what came back out. */
+.reports { display: flex; flex-direction: column; gap: 9px; }
+.report {
+  background: rgba(0,0,0,.22); border-radius: 4px; padding: 10px 12px;
+  border-left: 3px solid transparent; text-align: left; width: 100%; cursor: pointer;
+}
+.report.won { border-left-color: var(--good); }
+.report.lost { border-left-color: var(--bad); }
+.report-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.report-place { font-weight: 600; font-size: 14px; }
+.report-when { font-size: 12px; color: var(--dim); white-space: nowrap; }
+.report-outcome { font-size: 12px; color: var(--dim); margin: 3px 0 8px; }
+.report-sides { display: flex; flex-direction: column; gap: 5px; }
+.report-side { display: flex; align-items: center; gap: 7px; font-size: 12px; }
+.report-side.mine .report-name { color: var(--accent-2); font-weight: 600; }
+.report-name { min-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report-loss { color: var(--dim); min-width: 104px; }

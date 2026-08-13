@@ -485,6 +485,43 @@ if (player.alive && player.provinces.length) {
 // Supply that never binds is supply nobody has to think about.
 check('supply lines get cut over a war of this length', sawCutOff > 0);
 
+/*
+ * Battles have to be filed, and the numbers in them have to add up: you cannot
+ * lose more than you committed, and a finished battle must have at least two
+ * sides in it.
+ */
+(function () {
+  var reports = state.reports || [];
+  check('battles are filed as they finish', reports.length > 0);
+  check('no more reports are kept than the cap', reports.length <= IA.combat.MAX_REPORTS,
+    String(reports.length));
+  for (var i = 0; i < reports.length; i++) {
+    var r = reports[i];
+    if (r.sides.length < 2) { check('a battle has two sides', false, r.province); break; }
+    if (!(r.hours >= 1)) { check('a battle lasts at least an hour', false, r.province); break; }
+    var sum = 0, bad = null;
+    for (var s = 0; s < r.sides.length; s++) {
+      sum += r.sides[s].lost;
+      if (r.sides[s].lost > r.sides[s].committed + 0.5) bad = r.sides[s];
+      if (r.sides[s].lost < 0) bad = r.sides[s];
+    }
+    if (bad) {
+      check('nobody loses more than they committed', false,
+        r.province + ': ' + bad.name + ' lost ' + bad.lost + ' of ' + bad.committed);
+      break;
+    }
+    if (Math.abs(sum - r.casualties) > 1.5) {
+      check('the casualty total is the sum of the sides', false,
+        r.province + ': ' + sum + ' vs ' + r.casualties);
+      break;
+    }
+    if (r.winner && !r.sides.some(function (x) { return x.id === r.winner && x.held; })) {
+      check('the side that held the ground is the winner', false, r.province);
+      break;
+    }
+  }
+})();
+
 if (failures.length) {
   console.error('\nFAILED (' + failures.length + '):');
   failures.slice(0, 20).forEach(function (f) { console.error('  - ' + f); });
