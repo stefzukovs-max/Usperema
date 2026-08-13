@@ -16,6 +16,9 @@
 
   var IA = global.IA = global.IA || {};
 
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December'];
+
   var CAPITALS_NEEDED = 6;
   var COALITION_SHARE = 0.5;
   var INDUSTRY_SHARE = 1 / 3;
@@ -155,7 +158,14 @@
     {
       id: 'armistice',
       name: 'Armistice',
-      detail: 'Lead on victory points when the guns fall silent on 11 November 1918.',
+      detail: 'Lead on victory points when the guns fall silent.',
+      // The date moves with the campaign settings, so it cannot be a fixed
+      // string: a one-year war does not end in November 1918.
+      detailFor: function (state) {
+        var end = new Date(Date.UTC(1914, 6, 28) + armisticeDay(state) * 86400000);
+        return 'Lead on victory points when the guns fall silent on ' +
+          end.getUTCDate() + ' ' + MONTHS[end.getUTCMonth()] + ' ' + end.getUTCFullYear() + '.';
+      },
       status: function (state, n) {
         var day = IA.weather.dayOfWar(state);
         var end = armisticeDay(state);
@@ -210,7 +220,8 @@
       var cond = CONDITIONS[i];
       var st = cond.status(state, nation);
       out.push({
-        id: cond.id, name: cond.name, detail: cond.detail,
+        id: cond.id, name: cond.name,
+        detail: cond.detailFor ? cond.detailFor(state) : cond.detail,
         progress: Math.max(0, Math.min(1, st.progress || 0)),
         note: st.note,
         met: cond.met(state, nation)

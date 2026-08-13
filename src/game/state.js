@@ -41,7 +41,7 @@
    */
   var DEFAULT_SETTINGS = {
     victoryShare: 0.33,     // of the world's victory points, to win outright
-    warYears: 4.3,          // to the armistice; the historical war ran this long
+    warYears: 'historical', // to the armistice; or a number of years instead
     aggression: 1,          // how readily the AI goes to war
     supplies: 1,            // multiplier on everyone's opening stockpiles
     fogOfWar: true
@@ -52,7 +52,13 @@
     for (var k in DEFAULT_SETTINGS) {
       out[k] = (opts && opts[k] !== undefined) ? opts[k] : DEFAULT_SETTINGS[k];
     }
-    out.armisticeDay = Math.round(out.warYears * 365);
+    /*
+     * The historical option is the real date rather than a number of years, so
+     * it lands on 11 November 1918 exactly instead of three days past it.
+     */
+    out.armisticeDay = out.warYears === 'historical'
+      ? IA.weather.dayOfDate(1918, 10, 11)
+      : Math.round(out.warYears * 365);
     return out;
   }
 
