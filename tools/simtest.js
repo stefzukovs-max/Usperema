@@ -106,6 +106,48 @@ check('the blocs are at war on day one',
   'GER/FRA=' + IA.state.treaty(state, 'GER', 'FRA') + ' GER/AUH=' + IA.state.treaty(state, 'GER', 'AUH'));
 check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peace');
 
+/*
+ * Supply is cut by troops standing on the ground, not only by losing it.
+ *
+ * On day one nobody has built a depot, so the capital is a nation's only
+ * source.  Put a hostile stack on every province around it and the rest of the
+ * country must go dark — if it does not, supply is leaking through the enemy.
+ */
+(function () {
+  var player = state.nationById[state.playerId];
+  var cap = state.provinces[player.capitalProvince];
+  var foe = state.nations.filter(function (n) {
+    return n.alive && IA.state.atWar(state, state.playerId, n.id);
+  })[0];
+  if (!foe) { check('the player has a war to test supply with', false); return; }
+
+  var before = player.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length;
+  check('supply reaches beyond the capital to begin with', before > 1, 'reached ' + before);
+
+  var planted = [];
+  for (var i = 0; i < cap.neighbors.length; i++) {
+    var np = state.provinces[cap.neighbors[i]];
+    if (np.isSea) continue;
+    planted.push(IA.state.spawnArmy(state, foe.id, np.id, [{ typeId: 'line_infantry', count: 1 }]));
+  }
+  check('the capital has land neighbours to blockade', planted.length > 0);
+  IA.economy.refreshSupply(state);
+  var after = player.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length;
+  check('an enemy astride the road cuts the supply behind it', after < before,
+    'reached ' + after + ' of ' + player.provinces.length + ', was ' + before);
+  check('the capital still feeds itself', cap.inSupply === true);
+
+  // Put the world back before the real run starts.
+  planted.forEach(function (a) {
+    var at = state.armies.indexOf(a);
+    if (at >= 0) state.armies.splice(at, 1);
+  });
+  IA.combat.reconcile(state);
+  IA.economy.refreshSupply(state);
+  check('supply comes back once the road is clear',
+    player.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length === before);
+})();
+
 check('every nation has a capital province', state.nations.every(function (n) {
   return state.provinces[n.capitalProvince] && state.provinces[n.capitalProvince].nationId === n.id;
 }));
@@ -118,6 +160,7 @@ check('neutral land exists', neutral > 0);
 var hours = days * 24;
 var t1 = Date.now();
 var lastReport = 0;
+var sawCutOff = 0;
 for (var h = 0; h < hours; h++) {
   IA.loop.advance(state, 1);
 
@@ -127,6 +170,7 @@ for (var h = 0; h < hours; h++) {
     if (!army.units.length) { check('no empty stacks', false, army.id); break; }
     var prov = state.provinces[army.provinceId];
     if (!prov || prov.size === 0) { check('armies stand on real provinces', false, army.id); break; }
+    if (army.supplied === false) sawCutOff++;
     var domain = IA.orders.armyDomain(army);
     if (domain === 'sea' && !prov.isSea) { check('naval stacks stay at sea', false, army.id + ' in ' + prov.name); break; }
     for (var u = 0; u < army.units.length; u++) {
@@ -153,6 +197,23 @@ for (var h = 0; h < hours; h++) {
     }
     check('province lists match ownership', counted === nat.provinces.length,
       nat.id + ' lists ' + nat.provinces.length + ' but owns ' + counted);
+
+    // A nation still holding its capital feeds itself from it, so the capital
+    // is in supply by construction and the trace is broken if it is not.
+    if (nat.alive) {
+      var capProv = state.provinces[nat.capitalProvince];
+      if (capProv && capProv.nationId === nat.id) {
+        check('a held capital is in supply', capProv.inSupply === true,
+          nat.id + ' capital ' + capProv.name + ' supply=' + capProv.supply);
+      }
+      for (var sp = 0; sp < nat.provinces.length; sp++) {
+        var pr = state.provinces[nat.provinces[sp]];
+        if (!(pr.supply >= 0 && pr.supply < 40)) {
+          check('supply stays within reach', false, nat.id + '/' + pr.name + ' = ' + pr.supply);
+          break;
+        }
+      }
+    }
   }
   if (failures.length) break;
 
@@ -163,11 +224,15 @@ for (var h = 0; h < hours; h++) {
         .sort(function (x, y) { return y.vp - x.vp; })[0];
       var wars = 0;
       for (var w = 0; w < state.nations.length; w++) wars += (state.nations[w].warCount || 0);
-      var battalions = 0, starving = 0;
-      for (var b = 0; b < state.armies.length; b++) battalions += IA.state.unitCount(state.armies[b]);
+      var battalions = 0, starving = 0, cutOff = 0;
+      for (var b = 0; b < state.armies.length; b++) {
+        battalions += IA.state.unitCount(state.armies[b]);
+        if (state.armies[b].supplied === false) cutOff++;
+      }
       for (var sn = 0; sn < state.nations.length; sn++) if (state.nations[sn].shortage) starving++;
       console.log('  day ' + (lastReport + 1) + ': ' + state.armies.length + ' stacks / ' +
-        battalions + ' battalions, ' + (wars / 2) + ' wars, ' + starving + ' nations short of supply, leader ' +
+        battalions + ' battalions (' + cutOff + ' cut off), ' + (wars / 2) +
+        ' wars, ' + starving + ' nations short of supply, leader ' +
         leader.name + ' (' + leader.vp + ' VP), ' +
         state.nations.filter(function (x) { return x.alive; }).length + ' alive');
     }
@@ -221,6 +286,9 @@ if (player.alive && player.provinces.length) {
   var mres = IA.market.buy(state, player, 'oil', 100);
   check('player can trade', mres.ok, mres.why);
 }
+
+// Supply that never binds is supply nobody has to think about.
+check('supply lines get cut over a war of this length', sawCutOff > 0);
 
 if (failures.length) {
   console.error('\nFAILED (' + failures.length + '):');

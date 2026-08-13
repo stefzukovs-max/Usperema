@@ -98,6 +98,8 @@
       var army = side.armies[a];
       var us = unitsAlive(army);
       var moraleMul = 0.6 + 0.4 * clamp(IA.state.armyStrength(army).ratio, 0, 1);
+      // Men who have not been fed or resupplied do not press an attack home.
+      if (army.supplied === false) moraleMul *= IA.economy.UNSUPPLIED_ATTACK;
       for (var u = 0; u < us.length; u++) {
         var g = us[u];
         var t = UnitData.BY_ID[g.typeId];
@@ -394,6 +396,8 @@
     if (nn) nn.provinces.push(prov.id);
     // Tell the renderer to repaint just this corner of the cached map.
     (state.dirtyProvinces || (state.dirtyProvinces = [])).push(prov.id);
+    // Both sides' supply changed the moment the ground did.
+    IA.economy.refreshSupply(state, oldOwnerId ? [oldOwnerId, newOwnerId] : [newOwnerId]);
 
     var oldName = oldOwnerId && state.nationById[oldOwnerId] ? state.nationById[oldOwnerId].name : 'neutral forces';
     var newName = nn ? nn.name : 'unknown';

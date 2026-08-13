@@ -35,6 +35,7 @@
     IA.economy.tickResearch(state, hours);
     IA.economy.tickRepair(state, hours);
     IA.economy.tickEntrench(state, hours);
+    IA.economy.tickAttrition(state, hours);
     IA.economy.tickMorale(state, hours);
     IA.market.tick(state, rng, hours);
     IA.diplomacy.tickRelations(state, rng, hours);
@@ -42,10 +43,10 @@
   }
 
   function stepDay(state, rng) {
+    IA.economy.refreshSupply(state);
     for (var i = 0; i < state.nations.length; i++) {
       var nation = state.nations[i];
       if (!nation.alive) continue;
-      IA.economy.refreshSupplyDistance(state, nation);
       if (nation.isPlayer) nation.resources.gold += DAILY_GOLD;
     }
     IA.diplomacy.refreshWarCounts(state);

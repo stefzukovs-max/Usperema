@@ -257,6 +257,7 @@ input { font: inherit; }
   padding: 7px 10px; border-radius: 4px; font-size: 13px; margin: 8px 0;
 }
 .notice.warn { background: rgba(226,99,79,.12); border-left-color: var(--bad); }
+.notice.bad { background: rgba(176,74,56,.2); border-left-color: var(--bad); color: #f0d9d2; }
 
 .bar { height: 6px; background: rgba(0,0,0,.35); border-radius: 3px; overflow: hidden; flex: 1 1 auto; min-width: 50px; }
 .bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width .2s; }

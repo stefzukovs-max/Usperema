@@ -455,8 +455,15 @@
         stat('Morale', Math.round(prov.morale) + '%'),
         stat('Deposit', meta.icon + ' ' + meta.name),
         stat('Victory points', String(prov.vp)),
-        stat('Terrain', IA.worldgen.TERRAIN[prov.terrain].name)
+        stat('Terrain', IA.worldgen.TERRAIN[prov.terrain].name),
+        stat('Supply', supplyLabel(prov))
       ]));
+      if (isMine && !prov.inSupply) {
+        wrap.appendChild(el('div', { class: 'notice warn' },
+          'Cut off from your depots. Morale is falling and any stack here is ' +
+          'losing men. Take back the ground between here and the capital, or ' +
+          'build a supply depot closer in.'));
+      }
       if (prov.capture) {
         var by = state.nationById[prov.capture.by];
         wrap.appendChild(el('div', { class: 'notice warn' },
@@ -628,6 +635,7 @@
       : army.order && army.order.type === 'bombard'
         ? 'Bombarding ' + state.provinces[army.order.target].name
         : army.inCombat ? 'In combat' : 'Holding position';
+    if (army.supplied === false) statusText += ' — out of supply';
 
     /*
      * The readout: everything you need to judge a fight at a glance — who they
@@ -665,6 +673,14 @@
       readStat('⛨', defence.toFixed(1), 'Defence strength'),
       terrain ? readStat('⛰', Math.round((terrain.def - 1) * 100) + '%', terrain.name + ' defence modifier') : null
     ]));
+
+    if (mine && army.supplied === false) {
+      wrap.appendChild(el('div', { class: 'notice bad' },
+        'Out of supply. This stack is losing men every hour and fights at ' +
+        Math.round(IA.economy.UNSUPPLIED_ATTACK * 100) + '% strength. Supply ' +
+        'reaches one province beyond your own ground — fall back towards it, or ' +
+        'take the province behind you.'));
+    }
 
     if (mine) {
       var reach = IA.combat.maxRange(state, army);
@@ -1360,6 +1376,15 @@
       el('span', { class: 'rs-icon', text: icon }),
       el('span', { class: 'rs-val', text: value })
     ]);
+  }
+
+  /** How well fed a province is, in words rather than a number nobody can read. */
+  function supplyLabel(prov) {
+    if (!prov.nationId) return '—';
+    if (!prov.inSupply) return 'Cut off';
+    if (prov.supply >= 3) return 'Secure';
+    if (prov.supply >= 1.5) return 'Adequate';
+    return 'Stretched';
   }
 
   function stat(label, value) {

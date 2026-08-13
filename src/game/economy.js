@@ -127,35 +127,182 @@
     return { income: inc, upkeep: up, net: net };
   }
 
-  /** Distance in provinces from the capital, through own territory. */
-  function refreshSupplyDistance(state, nation) {
-    var dist = {};
-    var cap = nation.capitalProvince;
-    var capProv = state.provinces[cap];
-    if (!capProv || capProv.nationId !== nation.id) {
-      // Capital lost: everything is poorly supplied.
-      for (var i = 0; i < nation.provinces.length; i++) {
-        state.provinces[nation.provinces[i]].supplyDist = 6;
+  /*
+   * Supply.
+   *
+   * Supply flows out from the capital and from every depot, harbour and
+   * railway yard, spreading province by province across ground the nation
+   * holds or is allied to.  It does not pass through a province an enemy army
+   * is standing in, so a cavalry raid behind the line cuts the front off
+   * without having to take the ground first — which is most of the point.
+   *
+   * Every source has a reach.  Crossing a province spends a unit of it, less
+   * where there is a railway to carry it, and what is left on arrival is that
+   * province's supply.  Somewhere nothing reaches is out of supply: its morale
+   * falls, and an army standing there starts to come apart.
+   */
+  var CAPITAL_REACH = 5;
+  var RAIL_DISCOUNT = 0.45;      // a railway costs this much less to cross
+  var ARMY_ATTRITION = 0.75;     // hit points an hour per battalion, unsupplied
+  var UNSUPPLIED_ATTACK = 0.62;  // what an unsupplied stack's fire is worth
+
+  /** Max-heap on remaining reach, so each province is settled from its best feed. */
+  function Heap() { this.a = []; }
+  Heap.prototype.push = function (id, key) {
+    var a = this.a, i = a.length;
+    a.push({ id: id, key: key });
+    while (i > 0) {
+      var p = (i - 1) >> 1;
+      if (a[p].key >= a[i].key) break;
+      var t = a[p]; a[p] = a[i]; a[i] = t;
+      i = p;
+    }
+  };
+  Heap.prototype.pop = function () {
+    var a = this.a, top = a[0], last = a.pop();
+    if (a.length) {
+      a[0] = last;
+      var i = 0;
+      for (;;) {
+        var l = i * 2 + 1, r = l + 1, m = i;
+        if (l < a.length && a[l].key > a[m].key) m = l;
+        if (r < a.length && a[r].key > a[m].key) m = r;
+        if (m === i) break;
+        var t = a[m]; a[m] = a[i]; a[i] = t;
+        i = m;
       }
-      return;
     }
-    dist[cap] = 0;
-    var queue = [cap], head = 0;
-    while (head < queue.length) {
-      var pid = queue[head++];
-      var p = state.provinces[pid];
-      for (var n = 0; n < p.neighbors.length; n++) {
-        var np = state.provinces[p.neighbors[n]];
-        if (np.nationId !== nation.id) continue;
-        if (dist[np.id] !== undefined) continue;
-        dist[np.id] = dist[pid] + 1;
-        queue.push(np.id);
+    return top;
+  };
+
+  function supplySources(state, nation) {
+    var out = [];
+    var extra = techBonus(nation, 'supply');
+    var cap = state.provinces[nation.capitalProvince];
+    if (cap && cap.nationId === nation.id) {
+      out.push({ id: cap.id, reach: CAPITAL_REACH + extra });
+    }
+    for (var i = 0; i < nation.provinces.length; i++) {
+      var p = state.provinces[nation.provinces[i]];
+      var r = buildingEffect(p, 'warehouse', 'supply') +
+        buildingEffect(p, 'harbour', 'supply') +
+        buildingEffect(p, 'railway', 'supply');
+      if (r > 0) out.push({ id: p.id, reach: r + extra });
+    }
+    return out;
+  }
+
+  /** Ground a nation's supply may cross: its own, and its allies'. */
+  function carriesSupply(state, nation, prov) {
+    if (prov.isSea || !prov.nationId) return false;
+    if (prov.nationId === nation.id) return true;
+    return IA.state.treaty(state, nation.id, prov.nationId) === 'alliance';
+  }
+
+  function anyHostile(state, id, owners) {
+    for (var i = 0; i < owners.length; i++) {
+      if (IA.state.isHostile(state, id, owners[i])) return true;
+    }
+    return false;
+  }
+
+  function spreadSupply(state, nation, occupiers) {
+    var supply = nation.supply = {};
+    var hops = {};
+    var heap = new Heap();
+    var sources = supplySources(state, nation);
+    var i;
+    for (i = 0; i < sources.length; i++) {
+      var s = sources[i];
+      if (supply[s.id] !== undefined && supply[s.id] >= s.reach) continue;
+      supply[s.id] = s.reach;
+      hops[s.id] = 0;
+      heap.push(s.id, s.reach);
+    }
+    while (heap.a.length) {
+      var top = heap.pop();
+      if (top.key < supply[top.id] - 1e-9) continue;              // stale entry
+      var prov = state.provinces[top.id];
+      var here = occupiers[prov.id];
+      if (here && anyHostile(state, nation.id, here)) continue;   // the line is cut here
+      for (var k = 0; k < prov.neighbors.length; k++) {
+        var np = state.provinces[prov.neighbors[k]];
+        if (!carriesSupply(state, nation, np)) continue;
+        var left = top.key - (buildingLevel(np, 'railway') ? 1 - RAIL_DISCOUNT : 1);
+        if (left < 0) continue;
+        if (supply[np.id] !== undefined && supply[np.id] >= left - 1e-9) continue;
+        supply[np.id] = left;
+        hops[np.id] = hops[prov.id] + 1;
+        heap.push(np.id, left);
       }
     }
-    for (var q = 0; q < nation.provinces.length; q++) {
-      var prov = state.provinces[nation.provinces[q]];
-      prov.supplyDist = dist[prov.id] !== undefined ? dist[prov.id] : 8;
+    for (i = 0; i < nation.provinces.length; i++) {
+      var p = state.provinces[nation.provinces[i]];
+      p.supply = supply[p.id] || 0;
+      p.inSupply = supply[p.id] !== undefined;
+      // Hops still drive morale and the AI's sense of where a depot would help.
+      p.supplyDist = hops[p.id] !== undefined ? hops[p.id] : 9;
     }
+  }
+
+  /**
+   * Retrace supply, for every nation or for a named few.  Ground changing hands
+   * has to retrace both sides at once: taking the province that was cutting
+   * your line should restore it there and then, not at the next midnight.
+   */
+  function refreshSupply(state, only) {
+    // Where troops are standing, so a line can be cut without ground changing
+    // hands.  Built once and shared by every trace.
+    var occupiers = {};
+    for (var a = 0; a < state.armies.length; a++) {
+      var army = state.armies[a];
+      var list = occupiers[army.provinceId] || (occupiers[army.provinceId] = []);
+      if (list.indexOf(army.ownerId) < 0) list.push(army.ownerId);
+    }
+    var list2 = only
+      ? only.map(function (id) { return state.nationById[id]; })
+      : state.nations;
+    for (var n = 0; n < list2.length; n++) {
+      var nation = list2[n];
+      if (!nation) continue;
+      if (!nation.alive) { nation.supply = {}; continue; }
+      spreadSupply(state, nation, occupiers);
+    }
+  }
+
+  /**
+   * An army is fed by the province it stands in or by one next to it, so an
+   * invasion reaches one province past its own border and must take ground to
+   * push on.  Ships carry their own coal and are left out of it.
+   */
+  function armyInSupply(state, army) {
+    var prov = state.provinces[army.provinceId];
+    if (!prov || prov.isSea) return true;
+    var nation = state.nationById[army.ownerId];
+    if (!nation || !nation.supply) return true;
+    if (nation.supply[army.provinceId] !== undefined) return true;
+    for (var i = 0; i < prov.neighbors.length; i++) {
+      if (nation.supply[prov.neighbors[i]] !== undefined) return true;
+    }
+    return false;
+  }
+
+  function tickAttrition(state, hours) {
+    var hurt = false;
+    for (var i = 0; i < state.armies.length; i++) {
+      var army = state.armies[i];
+      army.supplied = armyInSupply(state, army);
+      if (army.supplied) continue;
+      for (var u = 0; u < army.units.length; u++) {
+        var g = army.units[u];
+        if (g.count <= 0 || g.hp <= 0) continue;
+        var type = UnitData.BY_ID[g.typeId];
+        if (!type || type.domain !== 'land') continue;
+        g.hp -= ARMY_ATTRITION * g.count * hours;
+        hurt = true;
+      }
+    }
+    if (hurt) IA.combat.reconcile(state);
   }
 
   function moraleTarget(state, prov) {
@@ -163,7 +310,8 @@
     var nation = state.nationById[prov.nationId];
     if (!nation) return 50;
     var t = 100;
-    t -= (prov.supplyDist || 0) * 3.2;
+    if (!prov.inSupply) t -= 26;                       // cut off from the depots
+    else t -= clamp(4 - (prov.supply || 0), 0, 4) * 3.4;   // the thin end of the line
     if (nation.warCount > 0) t -= 6 + Math.min(14, nation.warCount * 3);
     t += buildingEffect(prov, 'fort', 'morale');
     t += buildingEffect(prov, 'admin', 'morale');
@@ -392,7 +540,9 @@
     buildingEffect: buildingEffect, moraleFactor: moraleFactor,
     provinceOutput: provinceOutput, provinceConsumption: provinceConsumption,
     nationIncome: nationIncome, nationUpkeep: nationUpkeep, netIncome: netIncome,
-    refreshSupplyDistance: refreshSupplyDistance, moraleTarget: moraleTarget,
+    refreshSupply: refreshSupply, armyInSupply: armyInSupply,
+    tickAttrition: tickAttrition, UNSUPPLIED_ATTACK: UNSUPPLIED_ATTACK,
+    moraleTarget: moraleTarget,
     tickMorale: tickMorale, tickResources: tickResources, tickRepair: tickRepair,
     tickEntrench: tickEntrench, tickConstruction: tickConstruction,
     tickProduction: tickProduction, tickResearch: tickResearch,

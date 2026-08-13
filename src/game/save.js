@@ -107,6 +107,8 @@
     state.playerId = data.playerId;
     IA.state.recomputeVP(state);
     IA.diplomacy.refreshWarCounts(state);
+    // Supply is derived, so it is retraced rather than stored.
+    IA.economy.refreshSupply(state);
     state.dirtyProvinces = [];
     return state;
   }
