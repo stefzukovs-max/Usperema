@@ -267,12 +267,14 @@
   // --- selection -----------------------------------------------------------
 
   UI.selectProvince = function (id) {
+    IA.audio.play('select');
     this.selectedProvinceId = id;
     this.selectedArmyId = null;
     this.renderPanel();
   };
 
   UI.selectArmy = function (id) {
+    IA.audio.play('select');
     var army = IA.state.armyById(this.state, id);
     if (!army) return;
     this.selectedArmyId = id;
@@ -307,6 +309,7 @@
     if (this.targeting === 'bombard') res = IA.orders.issueBombard(this.state, army, prov.id);
     else res = IA.orders.issueMove(this.state, army, prov.id);
 
+    IA.audio.play(res.ok ? 'order' : 'deny');
     if (!res.ok) this.toast(res.why, 'warn');
     else if (res.hours) this.toast('Moving to ' + prov.name + ' — ' + util.fmtDuration(res.hours) + '.');
     this.setTargeting(null);
@@ -1510,6 +1513,37 @@
     var wrap = el('div', { class: 'menu-list' });
     var info = IA.save.peek();
     wrap.appendChild(el('div', { class: 'muted small', text: 'Seed: ' + state.seed }));
+
+    // Sound. Five steps rather than a slider, because a slider on a phone is a
+    // fiddly way to choose between "off" and "not very loud".
+    var levels = [
+      { label: 'Off', value: 0 }, { label: 'Quiet', value: 0.25 },
+      { label: 'Low', value: 0.45 }, { label: 'Normal', value: 0.6 },
+      { label: 'Loud', value: 0.9 }
+    ];
+    var volRow = el('div', { class: 'setting-options' });
+    function paintVolume() {
+      clear(volRow);
+      var current = IA.audio.getVolume();
+      levels.forEach(function (lv) {
+        volRow.appendChild(el('button', {
+          class: 'setting-opt' + (Math.abs(current - lv.value) < 0.02 ? ' on' : ''),
+          text: lv.label,
+          onclick: function () {
+            IA.audio.resume();
+            IA.audio.setVolume(lv.value);
+            if (lv.value > 0) IA.audio.play('select');
+            paintVolume();
+          }
+        }));
+      });
+    }
+    paintVolume();
+    wrap.appendChild(el('div', { class: 'setting' }, [
+      el('div', { class: 'setting-head', text: 'Sound' }),
+      el('div', { class: 'setting-note', text: 'Orders, gunfire and signals. Every sound is synthesised.' }),
+      volRow
+    ]));
     wrap.appendChild(el('button', {
       class: 'ok-btn wide', text: 'Save game',
       onclick: function () {
@@ -1667,9 +1701,18 @@
     this.recomputeVisibility();
     this.refreshHud();
     this.drainLog();
+    this.drainSounds();
     if (this.state.gameOver) this.showGameOver();
     this.renderer.draw(this);
     if (this.panelStale()) this.renderPanel();
+  };
+
+  /** The simulation leaves sound names behind; this is where they are heard. */
+  UI.drainSounds = function () {
+    var q = this.state.sfx;
+    if (!q || !q.length) return;
+    for (var i = 0; i < q.length; i++) IA.audio.play(q[i]);
+    q.length = 0;
   };
 
   UI.panelStale = function () {

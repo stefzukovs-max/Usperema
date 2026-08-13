@@ -182,6 +182,8 @@
         na.name + ' has torn up its ' + TREATY_LABEL[had].toLowerCase() + ' with ' +
         nb.name + '. Its word is worth less everywhere.', { nationId: a, otherId: b });
     }
+    IA.state.cue(state, 'war', a);
+    IA.state.cue(state, 'war', b);
     refreshWarCounts(state);
     return { ok: true };
   }
@@ -323,6 +325,8 @@
       state.nationById[a].name + ' and ' + state.nationById[b].name + ' agree to a ' +
       TREATY_LABEL[type].toLowerCase() + ' for ' + Math.round(TERM[type] / 24) + ' days.',
       { nationId: a, otherId: b });
+    IA.state.cue(state, 'treaty', a);
+    IA.state.cue(state, 'treaty', b);
   }
 
   function respondToOffer(state, offerId, accept) {

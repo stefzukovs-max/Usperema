@@ -23,6 +23,7 @@
   // --- menu ----------------------------------------------------------------
 
   function showMenu() {
+    IA.audio.arm();
     game.running = false;
     game.state = null;
     doc.getElementById('game').classList.remove('show');

@@ -133,6 +133,56 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   console.log('campaign settings reached the simulation (victory at ' +
     Math.round(applied.ratio * 100) + '%, armistice day ' + applied.armistice + ', fog off)');
 
+  /*
+   * Sound.
+   *
+   * Headless Chromium has a real WebAudio implementation with no speakers, so
+   * the whole chain can be exercised: the context starts, every sound in the
+   * palette builds its nodes without throwing, the throttle suppresses a
+   * repeat, and the volume control reaches the master gain. What cannot be
+   * checked here is whether it sounds like anything.
+   */
+  var audio = await page.evaluate(async function () {
+    IA.audio.resume();
+    await new Promise(function (r) { setTimeout(r, 120); });
+    if (!IA.audio.isReady()) return { ready: false };
+    IA.audio.setVolume(0.6);
+    var names = IA.audio.names();
+    var threw = [];
+    names.forEach(function (n) {
+      try { IA.audio.play(n); } catch (e) { threw.push(n + ': ' + e.message); }
+    });
+    // The same sound twice in a row must be swallowed by the throttle.
+    var before = IA.game.current.sfx ? IA.game.current.sfx.length : 0;
+    IA.audio.play('battle');
+    var doubled = false;
+    try { IA.audio.play('battle'); doubled = true; } catch (e) { /* still fine */ }
+
+    IA.audio.setVolume(0);
+    var silent = IA.audio.getVolume();
+    IA.audio.setVolume(0.6);
+
+    // And the simulation's own cue queue must be drained by the interface.
+    IA.state.cue(IA.game.current, 'order');
+    var queued = IA.game.current.sfx.length;
+    IA.UI.drainSounds();
+    return {
+      ready: true, count: names.length, threw: threw, doubled: doubled,
+      silent: silent, queued: queued, drained: IA.game.current.sfx.length, before: before
+    };
+  });
+  if (!audio.ready) {
+    console.log('audio: no WebAudio in this browser, skipped');
+  } else {
+    if (audio.threw.length) fail('sounds failed to build: ' + audio.threw.join('; '));
+    if (audio.count < 8) fail('expected a full palette of sounds, got ' + audio.count);
+    if (audio.silent !== 0) fail('volume could not be turned off');
+    if (audio.queued < 1) fail('a cue from the simulation was not queued');
+    if (audio.drained !== 0) fail('the sound queue was not drained by the interface');
+    console.log('audio: ' + audio.count + ' synthesised sounds play, ' +
+      'the cue queue drains, and volume reaches the master gain');
+  }
+
   // Put fog back on for the rest of the run, so everything below is tested on
   // the path a default campaign actually takes.
   await page.evaluate(function () {

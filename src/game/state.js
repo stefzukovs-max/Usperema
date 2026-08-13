@@ -341,6 +341,18 @@
     return atWar(state, a, b);
   }
 
+  /*
+   * A sound the player should hear.  The simulation has no idea what audio is,
+   * so it leaves a name here and the interface drains the queue each frame —
+   * which keeps the simulation DOM-free and silent when nobody is watching.
+   */
+  function cue(state, name, nationId) {
+    if (nationId && nationId !== state.playerId) return;
+    var q = state.sfx || (state.sfx = []);
+    q.push(name);
+    if (q.length > 12) q.shift();
+  }
+
   function recomputeVP(state) {
     var i, totals = {};
     for (i = 0; i < state.nations.length; i++) totals[state.nations[i].id] = 0;
@@ -371,7 +383,7 @@
     armyStrength: armyStrength, armyPower: armyPower, nationPower: nationPower,
     armyIndex: armyIndex, touchArmies: touchArmies,
     unitCount: unitCount, treaty: treaty, atWar: atWar, isHostile: isHostile,
-    recomputeVP: recomputeVP, pushLog: pushLog, defaultArmyName: defaultArmyName,
+    recomputeVP: recomputeVP, cue: cue, pushLog: pushLog, defaultArmyName: defaultArmyName,
     START_RESOURCES: START_RESOURCES, SPEEDS: SPEEDS
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

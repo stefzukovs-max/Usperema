@@ -285,6 +285,7 @@
         for (var m = 0; m < engaged[e].armies.length; m++) engaged[e].armies[m].inCombat = true;
       }
       openBattle(state, prov, engaged, snapshot);
+      for (var q = 0; q < engaged.length; q++) IA.state.cue(state, 'battle', engaged[q].ownerId);
       // Each side concentrates on its strongest hostile opponent.
       for (var x = 0; x < engaged.length; x++) {
         var me = engaged[x], target = null, best = -1;

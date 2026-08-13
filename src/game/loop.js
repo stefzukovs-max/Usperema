@@ -74,12 +74,14 @@
     var player = state.nationById[state.playerId];
     if (player && !player.alive) {
       state.gameOver = { result: 'defeat', winner: null, at: state.time, reason: 'overrun' };
+      IA.state.cue(state, 'defeat');
       IA.state.pushLog(state, 'world', 'Your nation has been overrun. The war is lost.');
       return;
     }
     var won = IA.victory.check(state);
     if (!won) return;
     state.gameOver = won;
+    IA.state.cue(state, won.result === 'victory' ? 'victory' : 'defeat');
     IA.state.pushLog(state, 'world', won.message);
   }
 

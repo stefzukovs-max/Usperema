@@ -430,6 +430,7 @@
           IA.state.pushLog(state, 'build',
             BuildingData.BY_ID[b.buildingId].name + ' level ' + b.level + ' completed in ' + prov.name + '.',
             { provinceId: prov.id });
+          IA.state.cue(state, 'build', prov.nationId);
         }
       }
     }
@@ -471,6 +472,7 @@
       var nation = state.nationById[prov.nationId];
       if (nation && nation.isPlayer) {
         IA.state.pushLog(state, 'build', type.name + ' ready in ' + prov.name + '.', { provinceId: prov.id });
+        IA.state.cue(state, 'build', prov.nationId);
       }
     }
   }
@@ -487,6 +489,7 @@
         if (nation.isPlayer) {
           IA.state.pushLog(state, 'research',
             'Research complete: ' + ResearchData.BY_ID[techId].name + '.', { techId: techId });
+          IA.state.cue(state, 'research', nation.id);
         }
       }
     }
