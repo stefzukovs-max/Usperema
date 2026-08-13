@@ -64,6 +64,14 @@ Central Powers, the Entente, or the neutrals; the two blocs start at war with
 each other and allied within themselves, and the neutrals start out of it with
 their own opinions to form.
 
+**The war opens on 28 July 1914** and runs on the real calendar, which is what
+makes the seasons mean anything. Weather is settled once a day per weather cell
+— about twelve degrees by ten, with the grid drifting eastward so fronts move —
+from a table for that cell's climate and season. It costs you in three places:
+movement, the fire a stack puts out, and attrition. An offensive launched in
+October moves at half the pace of one launched in June, a mountain range has a
+polar winter, and the southern hemisphere runs six months out of step.
+
 **Economy.** Every province farms and pays tax, and its deposit yields grain,
 timber, coal, iron or oil following real geography. Shells are not a deposit:
 they exist only if you build the works to make them, and those burn iron and
@@ -76,9 +84,26 @@ desert, the Amazon and the Congo are jungle, Siberia and northern Canada are
 taiga and tundra, the Himalaya and the Andes are mountains. Mountains and jungle
 slow attackers and shelter defenders.
 
-**Morale** drifts toward a target set by supply distance, how many wars you are
-fighting, hostile neighbours, unrest from recent conquest, and your buildings.
-Low morale cuts both production and combat strength.
+**Supply** is a network, not a distance. It flows out from your capital and from
+every depot, harbour and railway yard, province by province across ground you
+hold or are allied to, each source with a reach that crossing a province spends
+— less where a railway carries it. It does not pass through a province an enemy
+army is standing in, so a raid behind the line cuts the front off without having
+to take the ground first. Somewhere nothing reaches is out of supply: morale
+falls, and a land stack there loses men every hour and fights at 62%. An army is
+fed by the province it stands in or one next to it, so an invasion reaches one
+province past its own border and has to take ground to push on.
+
+**Morale** drifts toward a target set by supply, how many wars you are fighting,
+hostile neighbours, unrest from recent conquest, and your buildings. Low morale
+cuts both production and combat strength.
+
+**Officers** command stacks, one to a stack, and armies stop being
+interchangeable. Traits are two-sided wherever they are strong: an officer who
+presses every attack home is not the one you want holding a line, and a
+methodical one will not move until everything is in place. Rank is earned in
+battles that finish and opens room for a second and third speciality. An officer
+lost with his stack is killed or captured half the time and gone for good.
 
 **Combat** resolves every game hour. Stacks sharing a province exchange fire;
 damage depends on what the target force is made of (infantry, armour, air,
@@ -96,9 +121,22 @@ unable to fight. Aircraft away from an aerodrome run out of fuel.
 
 **Diplomacy** tracks a relation value and a treaty state (peace, non-aggression,
 alliance, war) per pair, but only between powers that share a border or already
-have history. The AI weighs relations, relative power and how many fronts it is
-already fighting on. Declaring war costs you standing with the neighbours and
-drags the victim's allies in.
+have history. Pacts have a term — 90 days for a non-aggression pact, 180 for an
+alliance — and lapse when it runs out. Letting one lapse is free; walking out
+early, or turning on the power you signed with, is not.
+
+**Reputation** runs 0..100 from a base of 75. Attacking an ally costs 34, a pact
+partner 22, and falling on a power that had given you no cause 12. It recovers
+about a point a fortnight, so working off one torn-up alliance takes a year of
+good conduct, and powers weigh it when deciding whether to sign — heavily for an
+alliance, less for a pact, barely at all for a ceasefire, where the fighting is
+the point and the paper is secondary.
+
+**Intelligence** puts agents into another power's territory to report on it,
+wreck a works, take a technology, or make a province ungovernable — or sweeps
+your own ground against theirs. Operations take days, and agents are a hard
+limit that grows with your administration rather than your treasury. Being
+caught costs relations with the victim and standing with everyone else.
 
 **Research** is a 28-technology tree across eight branches — infantry, artillery,
 armour, air, naval, industry, logistics and the home front — that unlocks units
@@ -108,8 +146,25 @@ siege guns, landships, aviation) are deliberately expensive and late.
 **The market** is a live exchange where prices mean-revert, drift hourly, and
 move against large orders.
 
-**Winning** means holding a third of the world's victory points, or outlasting
-everyone else. It is a long war.
+**Winning** can be done six ways, deliberately pulling in different directions:
+hold a third of the world's victory points, hold six other powers' capitals at
+once, lead an alliance holding half the world, turn out a third of the world's
+war material for thirty straight days, be the last power standing, or simply be
+ahead when the guns fall silent on 11 November 1918. Each reports progress as
+well as whether it is met — a victory condition nobody can see the state of is
+one nobody plays toward — and you do not have to win the one everybody else is
+playing for.
+
+**Battles** are recorded. An engagement runs from the hour hostile stacks first
+trade fire until one of them is gone, and the report says what each side
+committed and what came back out, so a skirmish reads differently from a
+catastrophe.
+
+**A campaign is set up before it starts**: length of the war, victory threshold,
+the other powers' appetite for war, opening stockpiles, and whether there is fog
+of war at all. Each is a small set of named choices rather than a slider,
+because "a fortnight" and "the whole war" are decisions a player can make and
+0.7 is not.
 
 ## Controls
 
@@ -124,6 +179,14 @@ everyone else. It is a long war.
 
 Select one of your stacks and use **Move**, **Attack** or **Bombard**, then tap
 the target province.
+
+A first campaign opens a short lesson that watches what you do: every step is a
+question asked of the real game — has a province been selected, is something in
+the build queue, is a technology being researched — so there is no scripted path
+and anything you have already done is ticked off as the lesson reaches it.
+
+Sound is ten synthesised cues; there is not a single audio asset in the
+repository. Volume lives under **More → Game**.
 
 ## Layout
 
@@ -142,8 +205,11 @@ tools/                test harnesses and the screenshot tool
 ```
 
 The simulation never touches the DOM, and the UI mutates the world only through
-`IA.orders`, `IA.diplomacy` and `IA.market` — the same entry points the AI uses,
-so the player and the opponents play by identical rules. Keeping the simulation
+`IA.orders`, `IA.diplomacy`, `IA.espionage`, `IA.commanders` and `IA.market` —
+the same entry points the AI uses, so the player and the opponents play by
+identical rules. Sound is the one thing that crosses the line, and it crosses it
+the other way: the simulation leaves a name on a queue and the interface drains
+it, so the simulation stays DOM-free and stays silent when nobody is watching. Keeping the simulation
 DOM-free is also what would let it move to a server later without a rewrite.
 
 Saves store only what the war changed. Geography comes from the compiled map and
@@ -212,14 +278,45 @@ records agree with the provinces themselves. It also asserts the map is really
 the 1914 world, then round-trips a save and confirms both copies evolve
 identically.
 
+Beyond that it tests the mechanics rather than the plumbing, which is a
+different thing:
+
+- it plants a hostile stack on every province around the player's capital and
+  requires the country behind it to go dark, then clears them and requires
+  supply to come back;
+- it winds the clock a year to check all four seasons arrive, that January is
+  winter in Petrograd and summer below 30°S, and that winter actually puts snow
+  on the ground;
+- it drives each of the six victory conditions to its trigger on a throwaway
+  save/load copy of the world and checks the right one fires;
+- it runs each intelligence operation with the roll forced, rather than hoping
+  the AI happens to run one of each;
+- it checks the arithmetic on every filed battle report — nobody losing more
+  than they committed, the casualty total being the sum of the sides, the
+  recorded winner being a side that actually held the ground;
+- and it checks the officer links in both directions, because stacks are
+  destroyed constantly and a commander pointing at one that no longer exists is
+  exactly the bug that will not announce itself.
+
 `uitest` loads the page in Chromium, starts a game, issues a move order, confirms
 an army is refused entry to a neighbour it is at peace with, declares war through
 the confirmation dialog and checks the treaty really changed, opens every screen,
 runs the clock at 16×, round-trips a save, checks the desktop layout for
-horizontal overflow, and fails on any console error. It also drags the map 120
-times and compares the scrolled layer against a repaint of the same view from
-scratch, which is the only way a seam or a band of stale ground in the scrolling
-renderer would ever be noticed. Screenshots land in `tools/shots/`.
+horizontal overflow, and fails on any console error. It also:
+
+- sets the campaign up through the actual menu controls and then checks the
+  resulting world against them — that victory really is half the map, that the
+  armistice is inside a year, that no province is hidden with fog off;
+- drags the map 120 times and compares the scrolled layer against a repaint of
+  the same view from scratch, which is the only way a seam or a band of stale
+  ground in the scrolling renderer would ever be noticed;
+- exercises the whole audio chain, since headless Chromium has real WebAudio and
+  no speakers: all ten sounds build their nodes, volume reaches the master gain,
+  and a cue left by the simulation is drained by the interface;
+- and plays the tutorial through ordinary game code, requiring it to walk its
+  six steps on its own. Nothing in that test tells the tutorial it has advanced.
+
+Screenshots land in `tools/shots/`.
 
 `perftest` runs the game at a 390x844 phone viewport at 3x pixel density with the
 clock at 16x and samples real frame deltas at four zoom levels including a
@@ -255,6 +352,12 @@ Most of the feel lives in a few constants:
 | Province count | `TARGET_PROVINCES` in `tools/buildmap.js` (then rebuild) |
 | Victory threshold | `victoryVP` in `src/game/state.js` |
 | Real seconds per game hour | `SPEEDS` in `src/game/state.js` |
+| Supply reach and attrition | `CAPITAL_REACH`, `ARMY_ATTRITION` in `src/game/economy.js` |
+| What each kind of weather does | `WEATHER` in `src/game/weather.js` |
+| What officers are good at | `TRAITS` in `src/data/commanders.js` |
+| The cost of a betrayal | `BETRAYAL` in `src/game/diplomacy.js` |
+| How the war can be won | `CONDITIONS` in `src/game/victory.js` |
+| Campaign defaults | `DEFAULT_SETTINGS` in `src/game/state.js` |
 
 ## Data and attribution
 
