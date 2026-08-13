@@ -8,20 +8,22 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var UnitData = SWW.UnitData;
-  var BuildingData = SWW.BuildingData;
-  var ResearchData = SWW.ResearchData;
+  var IA = global.IA = global.IA || {};
+  var UnitData = IA.UnitData;
+  var BuildingData = IA.BuildingData;
+  var ResearchData = IA.ResearchData;
 
   var TURN_INTERVAL = 6;      // game hours between turns for one nation
 
+  /* Roughly the order a general staff would have wanted them. */
   var TECH_PRIORITY = [
-    'conscription', 'small_arms', 'logistics', 'armour', 'artillery',
-    'war_economy', 'mech_inf', 'air_defence', 'body_armour', 'field_hospitals',
-    'rotary_wing', 'guided_shells', 'naval_doctrine', 'mbt', 'reactive_armour',
-    'jet_engine', 'total_mobilisation', 'urban_warfare', 'amphibious',
-    'submarine_warfare', 'strategic_bombing', 'stealth', 'rocketry',
-    'satellites', 'carrier_ops'
+    'conscription', 'machine_guns', 'quick_firing_guns', 'rail_logistics',
+    'war_economy', 'defence_in_depth', 'shell_standardisation', 'aviation',
+    'motorisation', 'field_hospitals', 'counter_battery', 'siege_guns',
+    'propaganda_bureau', 'assembly_lines', 'naval_gunnery', 'interceptors',
+    'infiltration', 'motor_transport', 'landships', 'synthetic_chemistry',
+    'creeping_barrage', 'armour_plate', 'air_superiority', 'total_mobilisation',
+    'submarine_warfare', 'convoy_doctrine', 'strategic_bombing', 'dreadnoughts'
   ];
 
   function tick(state, rng, hours) {
@@ -52,11 +54,11 @@
     if (nation.researching) return;
     for (var i = 0; i < TECH_PRIORITY.length; i++) {
       var tech = ResearchData.BY_ID[TECH_PRIORITY[i]];
-      if (!tech || !SWW.orders.techAvailable(nation, tech)) continue;
-      if (!SWW.economy.canAfford(nation, tech.cost)) continue;
-      // Keep a cash cushion so the war effort does not stall.
-      if (nation.resources.cash - (tech.cost.cash || 0) < 6000) continue;
-      SWW.orders.startResearch(state, nation, tech.id);
+      if (!tech || !IA.orders.techAvailable(nation, tech)) continue;
+      if (!IA.economy.canAfford(nation, tech.cost)) continue;
+      // Keep a money cushion so the war effort does not stall.
+      if (nation.resources.money - (tech.cost.money || 0) < 6000) continue;
+      IA.orders.startResearch(state, nation, tech.id);
       return;
     }
   }
@@ -68,13 +70,13 @@
     for (var i = 0; i < prov.neighbors.length; i++) {
       var np = state.provinces[prov.neighbors[i]];
       if (np.isSea || !np.nationId || np.nationId === prov.nationId) continue;
-      pressure += SWW.state.atWar(state, prov.nationId, np.nationId) ? 3 : 1;
+      pressure += IA.state.atWar(state, prov.nationId, np.nationId) ? 3 : 1;
     }
     return pressure;
   }
 
   function doConstruction(state, rng, nation) {
-    if (nation.resources.cash < 6000) return;
+    if (nation.resources.money < 6000) return;
     var best = null;
     for (var i = 0; i < nation.provinces.length; i++) {
       var prov = state.provinces[nation.provinces[i]];
@@ -82,10 +84,10 @@
       var choice = pickBuilding(state, nation, prov);
       if (!choice) continue;
       var cost = BuildingData.costFor(choice.id, (prov.buildings[choice.id] || 0) + 1);
-      if (!SWW.economy.canAfford(nation, cost)) continue;
+      if (!IA.economy.canAfford(nation, cost)) continue;
       if (!best || choice.score > best.score) best = { prov: prov, id: choice.id, score: choice.score };
     }
-    if (best) SWW.orders.startConstruction(state, best.prov, best.id);
+    if (best) IA.orders.startConstruction(state, best.prov, best.id);
   }
 
   function pickBuilding(state, nation, prov) {
@@ -93,20 +95,25 @@
     var options = [];
     var pressure = borderPressure(state, prov);
 
-    if (lvl('recruiting') < 1) options.push({ id: 'recruiting', score: 100 });
-    if (prov.isCapital && lvl('arms_factory') < 1) options.push({ id: 'arms_factory', score: 95 });
-    if (lvl('industry') < 3) options.push({ id: 'industry', score: 70 + prov.pop * 0.2 - lvl('industry') * 12 });
-    if (lvl('recruiting') < 2 && prov.pop > 40) options.push({ id: 'recruiting', score: 60 });
-    if (pressure >= 3 && lvl('bunker') < 2) options.push({ id: 'bunker', score: 65 + pressure * 4 });
-    if (lvl('arms_factory') < 2 && nation.provinces.length > 6 && prov.pop > 45) {
-      options.push({ id: 'arms_factory', score: 55 });
+    if (lvl('barracks') < 1) options.push({ id: 'barracks', score: 100 });
+    if (prov.isCapital && lvl('workshop') < 1) options.push({ id: 'workshop', score: 95 });
+    if (lvl('railway') < 2) options.push({ id: 'railway', score: 78 + prov.pop * 0.12 - lvl('railway') * 10 });
+    if (lvl('factory') < 3) options.push({ id: 'factory', score: 70 + prov.pop * 0.2 - lvl('factory') * 12 });
+    if (lvl('barracks') < 2 && prov.pop > 40) options.push({ id: 'barracks', score: 60 });
+    // A province with enemies next door digs in before it does anything else.
+    if (pressure >= 3 && lvl('fort') < 3) options.push({ id: 'fort', score: 68 + pressure * 5 });
+    if (lvl('workshop') < 2 && nation.provinces.length > 6 && prov.pop > 45) {
+      options.push({ id: 'workshop', score: 55 });
     }
-    if (prov.morale < 60 && lvl('propaganda') < 2) options.push({ id: 'propaganda', score: 58 });
-    if (lvl('airbase') < 1 && prov.isCapital && SWW.economy.hasTech(nation, 'rotary_wing')) {
-      options.push({ id: 'airbase', score: 50 });
+    if ((nation.warCount || 0) > 0 && lvl('warehouse') < 2 && (prov.supplyDist || 0) > 2) {
+      options.push({ id: 'warehouse', score: 62 });
     }
-    if (prov.coastal && lvl('naval_base') < 1 && SWW.economy.hasTech(nation, 'naval_doctrine')) {
-      options.push({ id: 'naval_base', score: 45 });
+    if (prov.morale < 60 && lvl('admin') < 2) options.push({ id: 'admin', score: 58 });
+    if (lvl('airfield') < 1 && prov.isCapital && IA.economy.hasTech(nation, 'aviation')) {
+      options.push({ id: 'airfield', score: 50 });
+    }
+    if (prov.coastal && lvl('harbour') < 1 && IA.economy.hasTech(nation, 'naval_gunnery')) {
+      options.push({ id: 'harbour', score: 45 });
     }
 
     var best = null;
@@ -131,8 +138,8 @@
     var income = nation.income;
     if (income) {
       // Roughly the running cost of one infantry battalion, with headroom.
-      var byFood = income.food / 3.6;
-      var byCash = income.cash / 7.5;
+      var byFood = income.grain / 3.6;
+      var byCash = income.money / 7.5;
       want = Math.min(want, Math.floor(Math.min(byFood, byCash)));
     }
     return Math.max(1, want);
@@ -141,11 +148,11 @@
   function doProduction(state, rng, nation) {
     // Never dig the hole deeper while already running a deficit.
     var net = nation.net;
-    if (net && (net.food < 0 || net.cash < 0)) return;
+    if (net && (net.grain < 0 || net.money < 0)) return;
 
-    var armies = SWW.state.armiesOf(state, nation.id);
+    var armies = IA.state.armiesOf(state, nation.id);
     var battalions = 0;
-    for (var i = 0; i < armies.length; i++) battalions += SWW.state.unitCount(armies[i]);
+    for (var i = 0; i < armies.length; i++) battalions += IA.state.unitCount(armies[i]);
     var queued = 0;
     for (var q = 0; q < nation.provinces.length; q++) queued += state.provinces[nation.provinces[q]].queue.length;
     if (battalions + queued >= desiredArmySize(state, nation)) return;
@@ -154,23 +161,31 @@
     for (var w = 0; w < wishlist.length; w++) {
       var typeId = wishlist[w];
       var type = UnitData.BY_ID[typeId];
-      if (!SWW.economy.canAfford(nation, type.cost)) continue;
+      if (!IA.economy.canAfford(nation, type.cost)) continue;
       var prov = pickProductionProvince(state, nation, type);
       if (!prov) continue;
-      var res = SWW.orders.queueUnit(state, prov, typeId);
+      var res = IA.orders.queueUnit(state, prov, typeId);
       if (res.ok) return;
     }
   }
 
+  /*
+   * What to build, best first.  Guns before glamour: artillery and machine
+   * guns win 1914 battles, and the expensive toys are only worth it once the
+   * treasury can carry them.
+   */
   function buildWishlist(state, nation) {
+    var has = function (t) { return IA.economy.hasTech(nation, t); };
     var list = [];
     var r = nation.resources;
-    if (SWW.economy.hasTech(nation, 'mbt') && r.cash > 30000) list.push('mbt');
-    if (SWW.economy.hasTech(nation, 'armour') && r.cash > 14000) list.push('light_tank');
-    if (SWW.economy.hasTech(nation, 'artillery') && r.cash > 12000) list.push('artillery');
-    if (SWW.economy.hasTech(nation, 'mech_inf') && r.cash > 10000) list.push('mech_inf');
-    if (SWW.economy.hasTech(nation, 'air_defence') && r.cash > 20000) list.push('sam');
-    list.push('infantry');
+    if (has('landships') && r.money > 30000) list.push('tank');
+    if (has('siege_guns') && r.money > 22000) list.push('heavy_artillery');
+    if (has('quick_firing_guns') && r.money > 10000) list.push('field_artillery');
+    if (has('machine_guns') && r.money > 6000) list.push('machine_gun');
+    if (has('infiltration') && r.money > 14000) list.push('assault_infantry');
+    if (has('defence_in_depth') && r.money > 12000) list.push('guard_infantry');
+    if (has('motorisation') && r.money > 16000) list.push('armoured_car');
+    list.push('line_infantry');
     return list;
   }
 
@@ -179,7 +194,7 @@
     for (var i = 0; i < nation.provinces.length; i++) {
       var prov = state.provinces[nation.provinces[i]];
       if (!prov || prov.queue.length >= 3) continue;
-      if (!SWW.economy.canBuildUnitHere(state, prov, type).ok) continue;
+      if (!IA.economy.canBuildUnitHere(state, prov, type).ok) continue;
       var score = 100 - prov.queue.length * 20 - (prov.supplyDist || 0) * 3 + prov.pop * 0.1;
       if (!best || score > best.score) best = { prov: prov, score: score };
     }
@@ -189,15 +204,15 @@
   // --- trade ---------------------------------------------------------------
 
   function doTrade(state, nation) {
-    var market = SWW.market;
+    var market = IA.market;
     var r = nation.resources;
     var income = nation.net || {};
     for (var i = 0; i < market.TRADED.length; i++) {
       var res = market.TRADED[i];
       var flow = income[res] || 0;
-      var lowWater = res === 'food' ? 3000 : 900;
-      if (r[res] < lowWater && flow < 0 && r.cash > 8000) {
-        market.buy(state, nation, res, Math.min(1200, Math.floor(r.cash * 0.25 / market.buyPrice(state, res))));
+      var lowWater = res === 'grain' ? 3000 : 900;
+      if (r[res] < lowWater && flow < 0 && r.money > 8000) {
+        market.buy(state, nation, res, Math.min(1200, Math.floor(r.money * 0.25 / market.buyPrice(state, res))));
       } else if (r[res] > 22000 && flow > 0) {
         market.sell(state, nation, res, Math.floor((r[res] - 18000) * 0.5));
       }
@@ -207,16 +222,16 @@
   // --- military ------------------------------------------------------------
 
   function estimateDefence(state, provinceId, attackerId) {
-    var defenders = SWW.state.allArmiesAt(state, provinceId).filter(function (a) {
-      return SWW.state.isHostile(state, attackerId, a.ownerId) ||
+    var defenders = IA.state.allArmiesAt(state, provinceId).filter(function (a) {
+      return IA.state.isHostile(state, attackerId, a.ownerId) ||
         (state.provinces[provinceId].nationId && a.ownerId === state.provinces[provinceId].nationId);
     });
     var power = 0;
-    for (var i = 0; i < defenders.length; i++) power += SWW.state.armyPower(defenders[i]);
+    for (var i = 0; i < defenders.length; i++) power += IA.state.armyPower(defenders[i]);
     var prov = state.provinces[provinceId];
     if (!prov.isSea) {
-      power *= 1 + SWW.economy.buildingEffect(prov, 'bunker', 'defence');
-      power *= SWW.worldgen.TERRAIN[prov.terrain] ? SWW.worldgen.TERRAIN[prov.terrain].def : 1;
+      power *= 1 + IA.economy.buildingEffect(prov, 'bunker', 'defence');
+      power *= IA.worldgen.TERRAIN[prov.terrain] ? IA.worldgen.TERRAIN[prov.terrain].def : 1;
     }
     return power;
   }
@@ -230,7 +245,7 @@
         var np = state.provinces[prov.neighbors[j]];
         if (np.isSea || seen[np.id]) continue;
         if (np.nationId === nation.id) continue;
-        if (np.nationId && !SWW.state.atWar(state, nation.id, np.nationId)) continue;
+        if (np.nationId && !IA.state.atWar(state, nation.id, np.nationId)) continue;
         seen[np.id] = true;
         out.push(np);
       }
@@ -239,7 +254,7 @@
   }
 
   function doMilitary(state, rng, nation) {
-    var armies = SWW.state.armiesOf(state, nation.id);
+    var armies = IA.state.armiesOf(state, nation.id);
     var objectives = findObjectives(state, nation);
 
     // Consolidate: merge idle stacks that share a province.
@@ -252,26 +267,26 @@
     for (var pid in byProv) {
       var group = byProv[pid];
       for (var g = 1; g < group.length; g++) {
-        if (SWW.state.unitCount(group[0]) >= 8) break;
-        if (SWW.orders.canMerge(state, group[0], group[g])) {
-          SWW.orders.mergeArmies(state, group[0], group[g]);
+        if (IA.state.unitCount(group[0]) >= 8) break;
+        if (IA.orders.canMerge(state, group[0], group[g])) {
+          IA.orders.mergeArmies(state, group[0], group[g]);
         }
       }
     }
 
-    armies = SWW.state.armiesOf(state, nation.id);
+    armies = IA.state.armiesOf(state, nation.id);
     var claimed = {};
     for (var k = 0; k < armies.length; k++) {
       var army = armies[k];
       if (army.path.length || army.inCombat) continue;
-      var power = SWW.state.armyPower(army);
-      var domain = SWW.orders.armyDomain(army);
+      var power = IA.state.armyPower(army);
+      var domain = IA.orders.armyDomain(army);
 
       // Artillery and other ranged stacks shell rather than charge.
-      var reach = SWW.combat.maxRange(state, army);
+      var reach = IA.combat.maxRange(state, army);
       if (reach > 0 && domain !== 'sea') {
         var shellTarget = pickBombardTarget(state, nation, army, reach);
-        if (shellTarget) { SWW.orders.issueBombard(state, army, shellTarget); continue; }
+        if (shellTarget) { IA.orders.issueBombard(state, army, shellTarget); continue; }
       }
 
       if (domain === 'sea') { patrol(state, rng, army); continue; }
@@ -286,7 +301,7 @@
       for (var o = 0; o < objectives.length; o++) {
         var target = objectives[o];
         if (claimed[target.id] && claimed[target.id] > 1) continue;
-        if (!SWW.orders.canEnter(state, army, target)) continue;
+        if (!IA.orders.canEnter(state, army, target)) continue;
         var defence = estimateDefence(state, target.id, nation.id);
         if (power < defence * 1.15 + 4) continue;
         var dx = target.cx - here.cx, dy = target.cy - here.cy;
@@ -297,19 +312,19 @@
 
       var chosen = null;
       for (var c = 0; c < ranked.length && c < 3; c++) {
-        var path = SWW.orders.findPath(state, army, army.provinceId, ranked[c].target.id);
+        var path = IA.orders.findPath(state, army, army.provinceId, ranked[c].target.id);
         if (path) { chosen = ranked[c].target; break; }
       }
       if (chosen) {
         claimed[chosen.id] = (claimed[chosen.id] || 0) + 1;
-        SWW.orders.issueMove(state, army, chosen.id);
+        IA.orders.issueMove(state, army, chosen.id);
         continue;
       }
 
       // Nothing worth attacking: garrison the most exposed province.
       var threat = mostThreatenedProvince(state, nation);
-      if (threat && threat.id !== army.provinceId && SWW.state.armiesIn(state, threat.id).length < 2) {
-        SWW.orders.issueMove(state, army, threat.id);
+      if (threat && threat.id !== army.provinceId && IA.state.armiesIn(state, threat.id).length < 2) {
+        IA.orders.issueMove(state, army, threat.id);
       }
     }
   }
@@ -319,12 +334,12 @@
     var best = null;
     for (var i = 0; i < prov.neighbors.length; i++) {
       var np = state.provinces[prov.neighbors[i]];
-      var enemies = SWW.state.allArmiesAt(state, np.id).filter(function (o) {
-        return SWW.state.isHostile(state, nation.id, o.ownerId);
+      var enemies = IA.state.allArmiesAt(state, np.id).filter(function (o) {
+        return IA.state.isHostile(state, nation.id, o.ownerId);
       });
       if (!enemies.length) continue;
       var power = 0;
-      for (var e = 0; e < enemies.length; e++) power += SWW.state.armyPower(enemies[e]);
+      for (var e = 0; e < enemies.length; e++) power += IA.state.armyPower(enemies[e]);
       if (!best || power > best.power) best = { id: np.id, power: power };
     }
     return best ? best.id : null;
@@ -337,10 +352,10 @@
       var threat = 0;
       for (var j = 0; j < prov.neighbors.length; j++) {
         var np = state.provinces[prov.neighbors[j]];
-        var enemies = SWW.state.allArmiesAt(state, np.id).filter(function (o) {
-          return SWW.state.isHostile(state, nation.id, o.ownerId);
+        var enemies = IA.state.allArmiesAt(state, np.id).filter(function (o) {
+          return IA.state.isHostile(state, nation.id, o.ownerId);
         });
-        for (var e = 0; e < enemies.length; e++) threat += SWW.state.armyPower(enemies[e]);
+        for (var e = 0; e < enemies.length; e++) threat += IA.state.armyPower(enemies[e]);
       }
       threat += prov.isCapital ? 20 : 0;
       if (threat <= 0) continue;
@@ -356,7 +371,7 @@
       return state.provinces[id].isSea;
     });
     if (!options.length) return;
-    if (rng.chance(0.4)) SWW.orders.issueMove(state, army, rng.pick(options));
+    if (rng.chance(0.4)) IA.orders.issueMove(state, army, rng.pick(options));
   }
 
   // --- diplomacy -----------------------------------------------------------
@@ -370,10 +385,10 @@
         other = state.nationById[enemies[i]];
         if (!other || !other.alive || other.id === nation.id) continue;
         if (nation.treaties[other.id] !== 'war') continue;
-        var mine = SWW.state.nationPower(state, nation.id) + nation.vp * 2;
-        var theirs = SWW.state.nationPower(state, other.id) + other.vp * 2;
+        var mine = IA.state.nationPower(state, nation.id) + nation.vp * 2;
+        var theirs = IA.state.nationPower(state, other.id) + other.vp * 2;
         if (theirs > mine * 1.5 || nation.warCount >= 3 || nation.shortage) {
-          if (rng.chance(0.3)) SWW.diplomacy.proposeTreaty(state, nation.id, other.id, 'peace');
+          if (rng.chance(0.3)) IA.diplomacy.proposeTreaty(state, nation.id, other.id, 'peace');
         }
       }
       return;
@@ -390,17 +405,17 @@
       for (i = 0; i < contacts.length; i++) {
         other = state.nationById[contacts[i]];
         if (!other || !other.alive || other.id === nation.id) continue;
-        var t = SWW.state.treaty(state, nation.id, other.id);
+        var t = IA.state.treaty(state, nation.id, other.id);
         if (t === 'alliance' || t === 'nap' || t === 'war') continue;
-        var rel = SWW.diplomacy.relation(state, nation.id, other.id);
+        var rel = IA.diplomacy.relation(state, nation.id, other.id);
         if (rel > 25) continue;
-        var myP = SWW.state.nationPower(state, nation.id);
-        var theirP = SWW.state.nationPower(state, other.id);
+        var myP = IA.state.nationPower(state, nation.id);
+        var theirP = IA.state.nationPower(state, other.id);
         if (theirP > myP * 0.75) continue;
         var score = (myP - theirP) + other.vp - rel;
         if (!prey || score > prey.score) prey = { id: other.id, score: score };
       }
-      if (prey) SWW.diplomacy.declareWar(state, nation.id, prey.id, 'territorial claims');
+      if (prey) IA.diplomacy.declareWar(state, nation.id, prey.id, 'territorial claims');
       return;
     }
 
@@ -409,16 +424,16 @@
       for (i = 0; i < contacts.length; i++) {
         other = state.nationById[contacts[i]];
         if (!other || !other.alive || other.id === nation.id) continue;
-        if (SWW.state.treaty(state, nation.id, other.id) !== 'peace') continue;
-        var r = SWW.diplomacy.relation(state, nation.id, other.id);
+        if (IA.state.treaty(state, nation.id, other.id) !== 'peace') continue;
+        var r = IA.diplomacy.relation(state, nation.id, other.id);
         if (r < 10) continue;
         if (!friend || r > friend.rel) friend = { id: other.id, rel: r };
       }
       if (friend) {
-        SWW.diplomacy.proposeTreaty(state, nation.id, friend.id, friend.rel > 45 ? 'alliance' : 'nap');
+        IA.diplomacy.proposeTreaty(state, nation.id, friend.id, friend.rel > 45 ? 'alliance' : 'nap');
       }
     }
   }
 
-  SWW.ai = { tick: tick, takeTurn: takeTurn, findObjectives: findObjectives, TURN_INTERVAL: TURN_INTERVAL };
+  IA.ai = { tick: tick, takeTurn: takeTurn, findObjectives: findObjectives, TURN_INTERVAL: TURN_INTERVAL };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

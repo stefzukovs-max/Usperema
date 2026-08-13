@@ -7,8 +7,8 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var clamp = SWW.util.clamp;
+  var IA = global.IA = global.IA || {};
+  var clamp = IA.util.clamp;
 
   var TREATY_LABEL = {
     peace: 'Peace', nap: 'Non-Aggression Pact', alliance: 'Alliance', war: 'At War'
@@ -38,7 +38,7 @@
 
   function declareWar(state, a, b, reason) {
     if (a === b) return { ok: false, why: 'Cannot declare war on yourself.' };
-    if (SWW.state.treaty(state, a, b) === 'war') return { ok: false, why: 'Already at war.' };
+    if (IA.state.treaty(state, a, b) === 'war') return { ok: false, why: 'Already at war.' };
     var na = state.nationById[a], nb = state.nationById[b];
     if (!na || !nb || !na.alive || !nb.alive) return { ok: false, why: 'Nation no longer exists.' };
     setTreaty(state, a, b, 'war');
@@ -53,17 +53,17 @@
       var third = state.nationById[wk[wi]];
       if (!third || !third.alive || third.id === a || third.id === b) continue;
       adjustRelation(state, a, third.id, -6);
-      if (SWW.state.treaty(state, third.id, b) === 'alliance') {
+      if (IA.state.treaty(state, third.id, b) === 'alliance') {
         // Allies of the victim are dragged in.
-        if (SWW.state.treaty(state, third.id, a) !== 'war') {
+        if (IA.state.treaty(state, third.id, a) !== 'war') {
           setTreaty(state, third.id, a, 'war');
-          SWW.state.pushLog(state, 'diplomacy',
+          IA.state.pushLog(state, 'diplomacy',
             third.name + ' honours its alliance and joins the war against ' + na.name + '.',
             { nationId: third.id });
         }
       }
     }
-    SWW.state.pushLog(state, 'diplomacy',
+    IA.state.pushLog(state, 'diplomacy',
       na.name + ' declares war on ' + nb.name + (reason ? ' — ' + reason : '') + '.',
       { nationId: a, otherId: b });
     refreshWarCounts(state);
@@ -71,10 +71,10 @@
   }
 
   function makePeace(state, a, b) {
-    if (SWW.state.treaty(state, a, b) !== 'war') return { ok: false, why: 'Not at war.' };
+    if (IA.state.treaty(state, a, b) !== 'war') return { ok: false, why: 'Not at war.' };
     setTreaty(state, a, b, 'peace');
     setRelation(state, a, b, Math.max(relation(state, a, b), -20));
-    SWW.state.pushLog(state, 'diplomacy',
+    IA.state.pushLog(state, 'diplomacy',
       state.nationById[a].name + ' and ' + state.nationById[b].name + ' have signed a ceasefire.',
       { nationId: a, otherId: b });
     refreshWarCounts(state);
@@ -133,8 +133,8 @@
     var them = state.nationById[fromId];
     if (!me || !them || !me.alive || !them.alive) return false;
     var rel = relation(state, evaluator, fromId);
-    var myPower = SWW.state.nationPower(state, evaluator) + me.vp * 2;
-    var theirPower = SWW.state.nationPower(state, fromId) + them.vp * 2;
+    var myPower = IA.state.nationPower(state, evaluator) + me.vp * 2;
+    var theirPower = IA.state.nationPower(state, fromId) + them.vp * 2;
     var ratio = theirPower / Math.max(1, myPower);
 
     if (type === 'peace') {
@@ -147,7 +147,7 @@
       return rel > -25 && (ratio > 0.75 || rel > 10);
     }
     if (type === 'alliance') {
-      if (SWW.state.treaty(state, evaluator, fromId) === 'war') return false;
+      if (IA.state.treaty(state, evaluator, fromId) === 'war') return false;
       return rel > 45 && (me.warCount > 0 || ratio > 0.6);
     }
     return false;
@@ -160,10 +160,10 @@
   function proposeTreaty(state, fromId, toId, type) {
     var to = state.nationById[toId];
     if (!to || !to.alive) return { ok: false, why: 'Nation no longer exists.' };
-    if (type === 'peace' && SWW.state.treaty(state, fromId, toId) !== 'war') {
+    if (type === 'peace' && IA.state.treaty(state, fromId, toId) !== 'war') {
       return { ok: false, why: 'You are not at war with them.' };
     }
-    if (type !== 'peace' && SWW.state.treaty(state, fromId, toId) === 'war') {
+    if (type !== 'peace' && IA.state.treaty(state, fromId, toId) === 'war') {
       return { ok: false, why: 'End the war first.' };
     }
     if (to.isPlayer) {
@@ -172,7 +172,7 @@
         id: 'o' + state.time.toFixed(2) + '_' + state.offers.length,
         from: fromId, to: toId, type: type, at: state.time
       });
-      SWW.state.pushLog(state, 'diplomacy',
+      IA.state.pushLog(state, 'diplomacy',
         state.nationById[fromId].name + ' proposes a ' + TREATY_LABEL[type].toLowerCase() + '.',
         { nationId: fromId, offer: true });
       return { ok: true, pending: true };
@@ -182,7 +182,7 @@
     else {
       adjustRelation(state, fromId, toId, -2);
       if (state.playerId === fromId) {
-        SWW.state.pushLog(state, 'diplomacy', to.name + ' rejects your proposal.', { nationId: toId });
+        IA.state.pushLog(state, 'diplomacy', to.name + ' rejects your proposal.', { nationId: toId });
       }
     }
     return { ok: true, accepted: accepted };
@@ -193,7 +193,7 @@
     setTreaty(state, a, b, type);
     if (type === 'alliance') adjustRelation(state, a, b, 15);
     if (type === 'nap') adjustRelation(state, a, b, 8);
-    SWW.state.pushLog(state, 'diplomacy',
+    IA.state.pushLog(state, 'diplomacy',
       state.nationById[a].name + ' and ' + state.nationById[b].name + ' agree to a ' +
       TREATY_LABEL[type].toLowerCase() + '.', { nationId: a, otherId: b });
   }
@@ -210,11 +210,11 @@
   }
 
   function breakTreaty(state, a, b) {
-    var t = SWW.state.treaty(state, a, b);
+    var t = IA.state.treaty(state, a, b);
     if (t === 'peace' || t === 'war') return { ok: false, why: 'No treaty to cancel.' };
     setTreaty(state, a, b, 'peace');
     adjustRelation(state, a, b, -25);
-    SWW.state.pushLog(state, 'diplomacy',
+    IA.state.pushLog(state, 'diplomacy',
       state.nationById[a].name + ' withdraws from its ' + TREATY_LABEL[t].toLowerCase() +
       ' with ' + state.nationById[b].name + '.', { nationId: a, otherId: b });
     return { ok: true };
@@ -239,7 +239,7 @@
         var b = state.nationById[id];
         if (!b || !b.alive) continue;
         if (b.id < a.id) continue;      // each pair is handled once, from one side
-        var t = SWW.state.treaty(state, a.id, b.id);
+        var t = IA.state.treaty(state, a.id, b.id);
         var delta = 0;
         if (t === 'war') delta -= 0.4 * hours;
         else if (t === 'alliance') delta += 0.15 * hours;
@@ -259,7 +259,7 @@
     }
   }
 
-  SWW.diplomacy = {
+  IA.diplomacy = {
     relation: relation, setRelation: setRelation, adjustRelation: adjustRelation,
     setTreaty: setTreaty, declareWar: declareWar, makePeace: makePeace,
     proposeTreaty: proposeTreaty, respondToOffer: respondToOffer, breakTreaty: breakTreaty,

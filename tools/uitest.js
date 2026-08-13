@@ -80,13 +80,13 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
 
   // Deterministic seed and a fixed nation so runs are comparable.
   await page.fill('#seedInput', 'ui-test');
-  await page.click('.nation-card:has-text("Mongolia")');
+  await page.click('.nation-card:has-text("Austria-Hungary")');
   await page.click('#startBtn');
   await page.waitForSelector('#game.show', { timeout: 20000 });
   await page.waitForTimeout(900);
 
   var info = await page.evaluate(function () {
-    var s = SWW.game.current;
+    var s = IA.game.current;
     return {
       player: s.playerId,
       provinces: s.nationById[s.playerId].provinces.length,
@@ -94,7 +94,7 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
       seed: s.seed
     };
   });
-  if (info.player !== 'MNG') fail('nation selection ignored, got ' + info.player);
+  if (info.player !== 'AUH') fail('nation selection ignored, got ' + info.player);
   if (info.provinces < 1) fail('player owns no provinces');
   console.log('started as ' + info.player + ' with ' + info.provinces + ' provinces, ' +
     info.armies + ' stacks on the map');
@@ -105,10 +105,10 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
 
   // Zoom out to see the whole world.
   await page.evaluate(function () {
-    var r = SWW.UI.renderer;
+    var r = IA.UI.renderer;
     r.camera.zoom = r.minZoom;
-    r.camera.x = SWW.game.current.mapW / 2;
-    r.camera.y = SWW.game.current.mapH / 2;
+    r.camera.x = IA.game.current.mapW / 2;
+    r.camera.y = IA.game.current.mapH / 2;
     r.clampCamera();
   });
   await page.waitForTimeout(300);
@@ -116,7 +116,7 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
 
   // Issue a real move order through the UI, into own territory.
   var moved = await page.evaluate(function () {
-    var s = SWW.game.current;
+    var s = IA.game.current;
     var mine = s.armies.filter(function (a) { return a.ownerId === s.playerId; });
     if (!mine.length) return { ok: false, why: 'no armies' };
     var army = null, target = null;
@@ -129,9 +129,9 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
       }
     }
     if (!target) return { ok: false, why: 'no friendly neighbour to march to' };
-    SWW.UI.selectArmy(army.id);
-    SWW.UI.setTargeting('move');
-    SWW.UI.resolveTargeting(target);
+    IA.UI.selectArmy(army.id);
+    IA.UI.setTargeting('move');
+    IA.UI.resolveTargeting(target);
     return { ok: army.path.length > 0, target: target.name, path: army.path.length };
   });
   if (!moved.ok) fail('move order failed: ' + (moved.why || 'no path set'));
@@ -139,14 +139,14 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
 
   // Marching into a country you are at peace with must be refused.
   var blocked = await page.evaluate(function () {
-    var s = SWW.game.current;
+    var s = IA.game.current;
     var mine = s.armies.filter(function (a) { return a.ownerId === s.playerId; })[0];
     var prov = s.provinces[mine.provinceId];
     for (var j = 0; j < prov.neighbors.length; j++) {
       var cand = s.provinces[prov.neighbors[j]];
       if (cand.isSea || !cand.nationId || cand.nationId === s.playerId) continue;
-      if (SWW.state.treaty(s, s.playerId, cand.nationId) !== 'peace') continue;
-      return { tested: true, ok: !SWW.orders.issueMove(s, mine, cand.id).ok, name: cand.name };
+      if (IA.state.treaty(s, s.playerId, cand.nationId) !== 'peace') continue;
+      return { tested: true, ok: !IA.orders.issueMove(s, mine, cand.id).ok, name: cand.name };
     }
     return { tested: false };
   });
@@ -156,7 +156,7 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
 
   // Detail stands down while the map moves and comes back once it settles.
   var detail = await page.evaluate(async function () {
-    var r = SWW.UI.renderer;
+    var r = IA.UI.renderer;
     r.camera.zoom = 8;
     r.panBy(-40, 0);
     var moving = r.detailAlpha();
@@ -184,22 +184,73 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
       await new Promise(function (r) { setTimeout(r, 16); });
     }
     send('pointerup', startX - 6 * 18);
-    var before = SWW.UI.renderer.camera.x;
-    var gliding = !!SWW.UI.glide;
+    var before = IA.UI.renderer.camera.x;
+    var gliding = !!IA.UI.glide;
     await new Promise(function (r) { setTimeout(r, 350); });
-    return { gliding: gliding, travelled: Math.abs(SWW.UI.renderer.camera.x - before) };
+    return { gliding: gliding, travelled: Math.abs(IA.UI.renderer.camera.x - before) };
   });
   if (!glide.gliding) fail('a flick did not start a glide');
   else if (glide.travelled < 0.5) fail('the glide did not move the camera (' + glide.travelled + ')');
   else console.log('flick coasts on after release (' + glide.travelled.toFixed(1) + ' map units)');
 
+  /*
+   * The map layer is scrolled between frames and only the strip that has come
+   * into view is repainted, so a mistake in that arithmetic leaves a seam, a
+   * band of stale ground or a map offset from the armies on top of it — none of
+   * which any other check would notice.  Drag a long way a few pixels at a
+   * time, then paint the same view again from scratch and compare.
+   *
+   * The bar is "no visible difference", not "identical".  Rasterising a stroke
+   * against a clip gives very slightly different antialiasing from rasterising
+   * it whole, so border lines settle a few levels away from where a single
+   * repaint would put them.  Measured over a long drag that reaches about 50
+   * levels on a handful of pixels and under 5 on the rest, against a wrong
+   * offset or a stale strip, which would put thousands of pixels far out.
+   */
+  var scroll = await page.evaluate(function () {
+    var r = IA.UI.renderer;
+    // Hold the clock still: a province changing hands mid-drag would repaint
+    // the layer and leave the two pictures legitimately different.
+    IA.UI.setSpeed('pause');
+    r.camera.zoom = 7;
+    r.clampCamera();
+    r.updateLayer();
+    for (var i = 0; i < 120; i++) {
+      r.panBy(-7, 3);
+      r.updateLayer();
+    }
+    var W = r.layer.width, H = r.layer.height;
+    var fresh = document.createElement('canvas');
+    fresh.width = W; fresh.height = H;
+    r.paintLayer(fresh, r.anchor, null);
+    var a = r.layer.getContext('2d').getImageData(0, 0, W, H).data;
+    var b = fresh.getContext('2d').getImageData(0, 0, W, H).data;
+    var off = 0, worst = 0;
+    for (var p = 0; p < a.length; p += 4) {
+      var d = Math.max(Math.abs(a[p] - b[p]),
+        Math.abs(a[p + 1] - b[p + 1]), Math.abs(a[p + 2] - b[p + 2]));
+      if (d > worst) worst = d;
+      if (d > 96) off++;                 // a difference nobody could miss
+    }
+    IA.UI.setSpeed('1x');
+    return { off: off, pixels: a.length / 4, worst: worst };
+  });
+  var offPct = scroll.off / scroll.pixels * 100;
+  if (offPct > 0.05) {
+    fail('scrolled map layer does not match a fresh repaint — ' + scroll.off + ' of ' +
+      scroll.pixels + ' pixels are plainly wrong (' + offPct.toFixed(3) + '%)');
+  } else {
+    console.log('scrolled map layer matches a fresh repaint after 120 drags' +
+      ' (worst channel off by ' + scroll.worst + '/255)');
+  }
+
   // Build something and research something through the real code paths.
   var actions = await page.evaluate(function () {
-    var s = SWW.game.current;
+    var s = IA.game.current;
     var nation = s.nationById[s.playerId];
     var cap = s.provinces[nation.capitalProvince];
-    var build = SWW.orders.startConstruction(s, cap, 'recruiting');
-    var tech = SWW.orders.startResearch(s, nation, 'conscription');
+    var build = IA.orders.startConstruction(s, cap, 'barracks');
+    var tech = IA.orders.startResearch(s, nation, 'conscription');
     return { build: build, tech: tech };
   });
   if (!actions.build.ok) fail('construction rejected: ' + actions.build.why);
@@ -220,13 +271,23 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   // The styled confirmation must appear, and must actually do the thing.
   await page.click('.nav-btn[data-nav="diplomacy"]');
   await page.waitForSelector('#modalBackdrop.show');
+  /*
+   * In 1914 most of the listed powers are already at war, and those rows offer
+   * peace rather than a declaration.  Find the first row that actually has a
+   * declare-war button and read the name from that same row.
+   */
   var warTarget = await page.evaluate(function () {
     var rows = document.querySelectorAll('.nation-row');
-    return rows.length ? rows[0].querySelector('.nation-name span').textContent : null;
+    for (var i = 0; i < rows.length; i++) {
+      if (!rows[i].querySelector('.danger-btn')) continue;
+      rows[i].setAttribute('data-war-target', '1');
+      return rows[i].querySelector('.nation-name span').textContent;
+    }
+    return null;
   });
-  if (!warTarget) fail('diplomacy listed no neighbours to declare war on');
+  if (!warTarget) fail('diplomacy listed nobody left to declare war on');
   else {
-    await page.locator('.nation-row .danger-btn').first().click();
+    await page.locator('.nation-row[data-war-target] .danger-btn').first().click();
     await page.waitForSelector('.confirm-box', { timeout: 3000 });
     await page.waitForTimeout(400);            // let the entrance animation finish
     await page.screenshot({ path: path.join(SHOTS, '07-confirm.png') });
@@ -235,9 +296,9 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
     await page.click('.confirm-ok');
     await page.waitForTimeout(200);
     var atWar = await page.evaluate(function (name) {
-      var s = SWW.game.current;
+      var s = IA.game.current;
       var target = s.nations.filter(function (n) { return n.name === name; })[0];
-      return target ? SWW.state.treaty(s, s.playerId, target.id) : 'missing';
+      return target ? IA.state.treaty(s, s.playerId, target.id) : 'missing';
     }, warTarget);
     if (atWar !== 'war') fail('confirming the dialog did not declare war (got ' + atWar + ')');
     else console.log('declared war on ' + warTarget + ' through the confirm dialog');
@@ -260,10 +321,10 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   await page.click('#modalClose');
 
   // Run the clock hard and make sure nothing throws.
-  await page.evaluate(function () { SWW.UI.setSpeed('16x'); });
+  await page.evaluate(function () { IA.UI.setSpeed('16x'); });
   await page.waitForTimeout(6000);
   var after = await page.evaluate(function () {
-    var s = SWW.game.current;
+    var s = IA.game.current;
     return {
       day: Math.floor(s.time / 24) + 1,
       time: s.time,
@@ -279,13 +340,13 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
 
   // Save / load through the UI code path.
   var roundTrip = await page.evaluate(function () {
-    var s = SWW.game.current;
-    var saved = SWW.save.save(s);
+    var s = IA.game.current;
+    var saved = IA.save.save(s);
     if (!saved.ok) return { ok: false, why: saved.why };
-    var loaded = SWW.save.load();
+    var loaded = IA.save.load();
     if (!loaded.ok) return { ok: false, why: loaded.why };
-    SWW.game.replaceState(loaded.state);
-    return { ok: true, day: Math.floor(SWW.game.current.time / 24) + 1 };
+    IA.game.replaceState(loaded.state);
+    return { ok: true, day: Math.floor(IA.game.current.time / 24) + 1 };
   });
   if (!roundTrip.ok) fail('save/load failed: ' + roundTrip.why);
   else console.log('save/load round trip ok (day ' + roundTrip.day + ')');
@@ -294,7 +355,7 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   // Desktop layout pass.
   await page.setViewportSize({ width: 1280, height: 860 });
   await page.waitForTimeout(400);
-  await page.evaluate(function () { SWW.UI.renderer.resize(); });
+  await page.evaluate(function () { IA.UI.renderer.resize(); });
   await page.waitForTimeout(300);
   await page.screenshot({ path: path.join(SHOTS, '06-desktop.png') });
 

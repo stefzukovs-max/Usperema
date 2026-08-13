@@ -6,12 +6,12 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var UnitData = SWW.UnitData;
-  var BuildingData = SWW.BuildingData;
-  var ResearchData = SWW.ResearchData;
-  var TERRAIN = SWW.worldgen.TERRAIN;
-  var Heap = SWW.util.Heap;
+  var IA = global.IA = global.IA || {};
+  var UnitData = IA.UnitData;
+  var BuildingData = IA.BuildingData;
+  var ResearchData = IA.ResearchData;
+  var TERRAIN = IA.worldgen.TERRAIN;
+  var Heap = IA.util.Heap;
 
   var SEA_TRANSPORT_SPEED = 0.55;
 
@@ -45,7 +45,7 @@
     if (prov.isSea) return true;
     if (!prov.nationId) return true;
     if (prov.nationId === army.ownerId) return true;
-    var rel = SWW.state.treaty(state, army.ownerId, prov.nationId);
+    var rel = IA.state.treaty(state, army.ownerId, prov.nationId);
     return rel === 'war' || rel === 'alliance';
   }
 
@@ -59,9 +59,9 @@
     if (!isFinite(base) || base <= 0) return 0;
     var domain = armyDomain(army);
     if (domain === 'land') {
-      base *= 1 + SWW.economy.techBonus(nation, 'speed');
+      base *= 1 + IA.economy.techBonus(nation, 'speed');
       if (destProv.isSea) {
-        base = SEA_TRANSPORT_SPEED * (1 + SWW.economy.techBonus(nation, 'seaSpeed'));
+        base = SEA_TRANSPORT_SPEED * (1 + IA.economy.techBonus(nation, 'seaSpeed'));
       } else {
         base *= TERRAIN[destProv.terrain] ? TERRAIN[destProv.terrain].speed : 1;
       }
@@ -148,9 +148,9 @@
   }
 
   function issueBombard(state, army, targetProvinceId) {
-    var reach = SWW.combat.maxRange(state, army);
+    var reach = IA.combat.maxRange(state, army);
     if (reach <= 0) return { ok: false, why: 'This stack has no ranged weapons.' };
-    var d = SWW.combat.provinceDistance(state, army.provinceId, targetProvinceId, reach);
+    var d = IA.combat.provinceDistance(state, army.provinceId, targetProvinceId, reach);
     if (d > reach) return { ok: false, why: 'Target is out of range.' };
     army.path = [];
     army.order = { type: 'bombard', target: targetProvinceId };
@@ -194,7 +194,7 @@
     }
     // One invalidation for the whole pass: bumping per step would rebuild the
     // army index hundreds of times an hour.
-    if (moved) SWW.state.touchArmies(state);
+    if (moved) IA.state.touchArmies(state);
   }
 
   function onArrive(state, army) {
@@ -202,7 +202,7 @@
     var nation = state.nationById[army.ownerId];
     if (army.order && army.order.type !== 'bombard') army.order = null;
     if (nation && nation.isPlayer) {
-      SWW.state.pushLog(state, 'move', army.name + ' has arrived in ' + prov.name + '.',
+      IA.state.pushLog(state, 'move', army.name + ' has arrived in ' + prov.name + '.',
         { provinceId: prov.id, armyId: army.id });
     }
   }
@@ -229,7 +229,7 @@
     }
     var idx = state.armies.indexOf(source);
     if (idx >= 0) state.armies.splice(idx, 1);
-    SWW.state.touchArmies(state);
+    IA.state.touchArmies(state);
     target.entrench = Math.min(target.entrench, source.entrench);
     return { ok: true };
   }
@@ -263,9 +263,9 @@
       units: taken, path: [], legRemaining: 0, legTotal: 0, order: null,
       inCombat: false, entrench: army.entrench, name: null, fuelStarved: false
     };
-    fresh.name = SWW.state.defaultArmyName(state, fresh);
+    fresh.name = IA.state.defaultArmyName(state, fresh);
     state.armies.push(fresh);
-    SWW.state.touchArmies(state);
+    IA.state.touchArmies(state);
     return { ok: true, army: fresh };
   }
 
@@ -281,8 +281,8 @@
     var level = (prov.buildings[buildingId] || 0) + 1;
     if (level > b.maxLevel) return { ok: false, why: 'Already at maximum level.' };
     var cost = BuildingData.costFor(buildingId, level);
-    if (!SWW.economy.canAfford(nation, cost)) return { ok: false, why: 'Insufficient resources.' };
-    SWW.economy.payCost(nation, cost);
+    if (!IA.economy.canAfford(nation, cost)) return { ok: false, why: 'Insufficient resources.' };
+    IA.economy.payCost(nation, cost);
     var time = BuildingData.timeFor(buildingId, level);
     prov.construction = { buildingId: buildingId, level: level, remaining: time, total: time, cost: cost };
     return { ok: true };
@@ -291,7 +291,7 @@
   function cancelConstruction(state, prov) {
     if (!prov.construction) return { ok: false, why: 'Nothing under construction.' };
     var nation = state.nationById[prov.nationId];
-    if (nation) SWW.economy.refundCost(nation, prov.construction.cost, 0.6);
+    if (nation) IA.economy.refundCost(nation, prov.construction.cost, 0.6);
     prov.construction = null;
     return { ok: true };
   }
@@ -301,12 +301,12 @@
     if (!nation) return { ok: false, why: 'Not your province.' };
     var type = UnitData.BY_ID[typeId];
     if (!type) return { ok: false, why: 'Unknown unit.' };
-    var check = SWW.economy.canBuildUnitHere(state, prov, type);
+    var check = IA.economy.canBuildUnitHere(state, prov, type);
     if (!check.ok) return { ok: false, why: check.why };
     if (prov.queue.length >= 5) return { ok: false, why: 'Production queue is full.' };
-    if (!SWW.economy.canAfford(nation, type.cost)) return { ok: false, why: 'Insufficient resources.' };
-    SWW.economy.payCost(nation, type.cost);
-    var time = SWW.economy.unitBuildTime(state, nation, type);
+    if (!IA.economy.canAfford(nation, type.cost)) return { ok: false, why: 'Insufficient resources.' };
+    IA.economy.payCost(nation, type.cost);
+    var time = IA.economy.unitBuildTime(state, nation, type);
     prov.queue.push({ typeId: typeId, remaining: time, total: time, cost: type.cost });
     return { ok: true };
   }
@@ -315,7 +315,7 @@
     if (index < 0 || index >= prov.queue.length) return { ok: false, why: 'No such job.' };
     var job = prov.queue.splice(index, 1)[0];
     var nation = state.nationById[prov.nationId];
-    if (nation) SWW.economy.refundCost(nation, job.cost, 0.7);
+    if (nation) IA.economy.refundCost(nation, job.cost, 0.7);
     return { ok: true };
   }
 
@@ -330,8 +330,8 @@
     var tech = ResearchData.BY_ID[techId];
     if (!tech) return { ok: false, why: 'Unknown technology.' };
     if (!techAvailable(nation, tech)) return { ok: false, why: 'Prerequisites not met.' };
-    if (!SWW.economy.canAfford(nation, tech.cost)) return { ok: false, why: 'Insufficient resources.' };
-    SWW.economy.payCost(nation, tech.cost);
+    if (!IA.economy.canAfford(nation, tech.cost)) return { ok: false, why: 'Insufficient resources.' };
+    IA.economy.payCost(nation, tech.cost);
     var hours = tech.days * 24;
     nation.researching = { techId: techId, remaining: hours, total: hours, cost: tech.cost };
     return { ok: true };
@@ -339,7 +339,7 @@
 
   function cancelResearch(state, nation) {
     if (!nation.researching) return { ok: false, why: 'Nothing in progress.' };
-    SWW.economy.refundCost(nation, nation.researching.cost, 0.5);
+    IA.economy.refundCost(nation, nation.researching.cost, 0.5);
     nation.researching = null;
     return { ok: true };
   }
@@ -374,7 +374,7 @@
     return { ok: false, why: 'Nothing to rush.' };
   }
 
-  SWW.orders = {
+  IA.orders = {
     armyDomain: armyDomain, canEnter: canEnter, armySpeed: armySpeed, legHours: legHours,
     findPath: findPath, issueMove: issueMove, issueBombard: issueBombard, stopArmy: stopArmy,
     estimateTravel: estimateTravel, tickMovement: tickMovement, canMerge: canMerge,

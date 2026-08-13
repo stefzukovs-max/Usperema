@@ -42,7 +42,7 @@
     return arr;
   };
 
-  global.SWW = global.SWW || {};
-  global.SWW.RNG = RNG;
-  global.SWW.hashString = hashString;
+  global.IA = global.IA || {};
+  global.IA.RNG = RNG;
+  global.IA.hashString = hashString;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

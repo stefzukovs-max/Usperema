@@ -5,10 +5,10 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
+  var IA = global.IA = global.IA || {};
   var doc = global.document;
-  var el = SWW.el;
-  var clear = SWW.clearNode;
+  var el = IA.el;
+  var clear = IA.clearNode;
 
   var game = {
     state: null,
@@ -18,7 +18,7 @@
   };
 
   var SPEED_BY_ID = {};
-  SWW.state.SPEEDS.forEach(function (s) { SPEED_BY_ID[s.id] = s; });
+  IA.state.SPEEDS.forEach(function (s) { SPEED_BY_ID[s.id] = s; });
 
   // --- menu ----------------------------------------------------------------
 
@@ -28,13 +28,13 @@
     doc.getElementById('game').classList.remove('show');
     doc.getElementById('gameOver').classList.remove('show');
     doc.getElementById('menu').classList.add('show');
-    SWW.UI.gameOverShown = false;
+    IA.UI.gameOverShown = false;
     buildMenu();
   }
 
   /** Every country on the map, largest first, with its size and capital. */
   function nationChoices() {
-    var map = SWW.mapdata.load();
+    var map = IA.mapdata.load();
     var counts = {};
     var capitals = {};
     var i;
@@ -114,13 +114,13 @@
       startNewGame({ seed: seed || String(Date.now()), playerNation: chosen.nation });
     };
 
-    var info = SWW.save.peek();
+    var info = IA.save.peek();
     var cont = doc.getElementById('continueBtn');
     if (info) {
       cont.style.display = '';
       cont.textContent = 'Continue — day ' + (Math.floor(info.time / 24) + 1);
       cont.onclick = function () {
-        var r = SWW.save.load();
+        var r = IA.save.load();
         if (!r.ok) { global.alert('Could not load the save: ' + r.why); return; }
         enterGame(r.state);
       };
@@ -136,7 +136,7 @@
     global.setTimeout(function () {
       var state;
       try {
-        state = SWW.state.createGame(opts);
+        state = IA.state.createGame(opts);
       } catch (e) {
         overlay.classList.remove('show');
         global.alert('World generation failed: ' + (e && e.message ? e.message : e));
@@ -152,8 +152,8 @@
     doc.getElementById('menu').classList.remove('show');
     doc.getElementById('gameOver').classList.remove('show');
     doc.getElementById('game').classList.add('show');
-    SWW.UI.gameOverShown = false;
-    SWW.UI.init(state);
+    IA.UI.gameOverShown = false;
+    IA.UI.init(state);
     game.lastFrame = global.performance ? global.performance.now() : Date.now();
     game.lastAutosave = state.time;
     game.running = true;
@@ -163,7 +163,7 @@
   function replaceState(state) {
     game.running = false;
     enterGame(state);
-    SWW.UI.toast('Save loaded.', 'ok');
+    IA.UI.toast('Save loaded.', 'ok');
   }
 
   // --- loop ----------------------------------------------------------------
@@ -177,16 +177,16 @@
 
     var speed = SPEED_BY_ID[state.speed] || SPEED_BY_ID['1x'];
     if (speed.hoursPerSecond > 0 && !state.gameOver) {
-      SWW.loop.advance(state, dt * speed.hoursPerSecond);
+      IA.loop.advance(state, dt * speed.hoursPerSecond);
       if (state.time - game.lastAutosave >= 48) {
         game.lastAutosave = state.time;
-        SWW.save.save(state);
+        IA.save.save(state);
       }
     }
-    SWW.UI.frame();
+    IA.UI.frame();
   }
 
-  SWW.game = {
+  IA.game = {
     start: startNewGame,
     toMenu: showMenu,
     replaceState: replaceState,

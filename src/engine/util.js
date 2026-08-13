@@ -72,8 +72,8 @@
   };
   Object.defineProperty(Heap.prototype, 'size', { get: function () { return this.a.length; } });
 
-  global.SWW = global.SWW || {};
-  global.SWW.util = {
+  global.IA = global.IA || {};
+  global.IA.util = {
     clamp: clamp, fmt: fmt, fmtRate: fmtRate, fmtTime: fmtTime,
     fmtDuration: fmtDuration, pad2: pad2, Heap: Heap
   };

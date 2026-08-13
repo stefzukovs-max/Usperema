@@ -53,7 +53,7 @@ FILES.forEach(function (f) {
   vm.runInContext(code, sandbox, { filename: f });
 });
 
-var SWW = sandbox.SWW;
+var IA = sandbox.IA;
 
 var failures = [];
 function check(label, cond, detail) {
@@ -65,11 +65,11 @@ var days = Number(process.argv[2] || 40);
 var seed = process.argv[3] || 'smoke-1';
 // A fixed mid-sized nation keeps runs comparable. The "player" never acts, so
 // a tiny country would simply be overrun and cut the run short.
-var playerNation = process.argv[4] || 'TUR';
+var playerNation = process.argv[4] || 'AUH';
 
 console.log('Generating world (seed "' + seed + '")...');
 var t0 = Date.now();
-var state = SWW.state.createGame({ seed: seed, playerNation: playerNation });
+var state = IA.state.createGame({ seed: seed, playerNation: playerNation });
 var genMs = Date.now() - t0;
 
 var land = 0, sea = 0, owned = 0, neutral = 0, orphan = 0;
@@ -90,7 +90,7 @@ console.log('  armies at start: ' + state.armies.length + ', total VP ' + state.
   ', victory at ' + state.victoryVP);
 
 // The map is real geography, so these must hold on every seed.
-var KNOWN = { FRA: 'Paris', JPN: 'Tokyo', EGY: 'Cairo', BRA: 'Brasília', AUS: 'Canberra' };
+var KNOWN = { FRA: 'Paris', GER: 'Berlin', AUH: 'Vienna', OTT: 'Constantinople', RUS: 'Petrograd' };
 Object.keys(KNOWN).forEach(function (iso) {
   var nat = state.nationById[iso];
   if (!nat) { check('nation ' + iso + ' exists', false); return; }
@@ -98,8 +98,13 @@ Object.keys(KNOWN).forEach(function (iso) {
   check('nation ' + iso + ' holds its capital', cap && cap.nationId === iso,
     cap ? cap.name + ' owned by ' + cap.nationId : 'missing');
 });
-check('France is called France', state.nationById.FRA && state.nationById.FRA.name === 'France',
-  state.nationById.FRA && state.nationById.FRA.name);
+check('the map is 1914, not the present day',
+  !!state.nationById.AUH && !!state.nationById.OTT && !state.nationById.TUR,
+  'AUH=' + !!state.nationById.AUH + ' OTT=' + !!state.nationById.OTT + ' TUR=' + !!state.nationById.TUR);
+check('the blocs are at war on day one',
+  IA.state.treaty(state, 'GER', 'FRA') === 'war' && IA.state.treaty(state, 'GER', 'AUH') === 'alliance',
+  'GER/FRA=' + IA.state.treaty(state, 'GER', 'FRA') + ' GER/AUH=' + IA.state.treaty(state, 'GER', 'AUH'));
+check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peace');
 
 check('every nation has a capital province', state.nations.every(function (n) {
   return state.provinces[n.capitalProvince] && state.provinces[n.capitalProvince].nationId === n.id;
@@ -114,7 +119,7 @@ var hours = days * 24;
 var t1 = Date.now();
 var lastReport = 0;
 for (var h = 0; h < hours; h++) {
-  SWW.loop.advance(state, 1);
+  IA.loop.advance(state, 1);
 
   // Invariants checked every hour.
   for (var a = 0; a < state.armies.length; a++) {
@@ -122,11 +127,11 @@ for (var h = 0; h < hours; h++) {
     if (!army.units.length) { check('no empty stacks', false, army.id); break; }
     var prov = state.provinces[army.provinceId];
     if (!prov || prov.size === 0) { check('armies stand on real provinces', false, army.id); break; }
-    var domain = SWW.orders.armyDomain(army);
+    var domain = IA.orders.armyDomain(army);
     if (domain === 'sea' && !prov.isSea) { check('naval stacks stay at sea', false, army.id + ' in ' + prov.name); break; }
     for (var u = 0; u < army.units.length; u++) {
       var g = army.units[u];
-      var type = SWW.UnitData.BY_ID[g.typeId];
+      var type = IA.UnitData.BY_ID[g.typeId];
       if (!(g.hp > 0)) { check('unit groups keep positive hp', false, army.id + '/' + g.typeId); break; }
       if (g.hp > type.hp * g.count + 0.01) {
         check('unit hp never exceeds maximum', false, army.id + '/' + g.typeId + ' ' + g.hp.toFixed(1) + '>' + (type.hp * g.count));
@@ -159,7 +164,7 @@ for (var h = 0; h < hours; h++) {
       var wars = 0;
       for (var w = 0; w < state.nations.length; w++) wars += (state.nations[w].warCount || 0);
       var battalions = 0, starving = 0;
-      for (var b = 0; b < state.armies.length; b++) battalions += SWW.state.unitCount(state.armies[b]);
+      for (var b = 0; b < state.armies.length; b++) battalions += IA.state.unitCount(state.armies[b]);
       for (var sn = 0; sn < state.nations.length; sn++) if (state.nations[sn].shortage) starving++;
       console.log('  day ' + (lastReport + 1) + ': ' + state.armies.length + ' stacks / ' +
         battalions + ' battalions, ' + (wars / 2) + ' wars, ' + starving + ' nations short of supply, leader ' +
@@ -174,9 +179,9 @@ console.log('Simulated ' + Math.round(state.time) + ' game hours in ' + simMs + 
   (simMs / Math.max(1, state.time)).toFixed(2) + ' ms per game hour)');
 
 // --- save / load round trip ------------------------------------------------
-var saved = SWW.save.save(state);
+var saved = IA.save.save(state);
 check('save succeeds', saved.ok, saved.why);
-var loaded = SWW.save.load();
+var loaded = IA.save.load();
 check('load succeeds', loaded.ok, loaded.why);
 if (loaded.ok) {
   var s2 = loaded.state;
@@ -190,28 +195,30 @@ if (loaded.ok) {
   check('map geometry is identical', s2.provinces.length === state.provinces.length &&
     s2.provinces[10].name === state.provinces[10].name);
   // Both copies should evolve identically from here.
-  SWW.loop.advance(state, 24);
-  SWW.loop.advance(s2, 24);
-  check('loaded game stays in sync', Math.abs(s2.nationById[s2.playerId].resources.cash -
-    state.nationById[state.playerId].resources.cash) < 1,
-    s2.nationById[s2.playerId].resources.cash + ' vs ' + state.nationById[state.playerId].resources.cash);
+  IA.loop.advance(state, 24);
+  IA.loop.advance(s2, 24);
+  check('loaded game stays in sync', Math.abs(s2.nationById[s2.playerId].resources.money -
+    state.nationById[state.playerId].resources.money) < 1,
+    s2.nationById[s2.playerId].resources.money + ' vs ' + state.nationById[state.playerId].resources.money);
 }
 
 // --- player-facing actions -------------------------------------------------
 var player = state.nationById[state.playerId];
 if (player.alive && player.provinces.length) {
   var home = state.provinces[player.provinces[0]];
-  player.resources.cash += 500000;
-  player.resources.materials += 50000;
+  player.resources.money += 500000;
+  player.resources.iron += 50000;
+  player.resources.timber += 50000;
+  player.resources.coal += 50000;
   player.resources.manpower += 50000;
-  player.resources.food += 50000;
-  var built = SWW.orders.startConstruction(state, home, 'recruiting');
+  player.resources.grain += 50000;
+  var built = IA.orders.startConstruction(state, home, 'barracks');
   check('player can start construction', built.ok || !!home.construction, built.why);
-  var qres = SWW.orders.queueUnit(state, home, 'infantry');
-  check('player can queue infantry', qres.ok || (home.buildings.recruiting || 0) < 1, qres.why);
-  var tech = SWW.orders.startResearch(state, player, 'logistics');
+  var qres = IA.orders.queueUnit(state, home, 'line_infantry');
+  check('player can queue line infantry', qres.ok || (home.buildings.barracks || 0) < 1, qres.why);
+  var tech = IA.orders.startResearch(state, player, 'conscription');
   check('player can research', tech.ok || !!player.researching, tech.why);
-  var mres = SWW.market.buy(state, player, 'fuel', 100);
+  var mres = IA.market.buy(state, player, 'oil', 100);
   check('player can trade', mres.ok, mres.why);
 }
 

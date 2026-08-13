@@ -9,21 +9,21 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var clamp = SWW.util.clamp;
+  var IA = global.IA = global.IA || {};
+  var clamp = IA.util.clamp;
 
   var TERRAIN = {
-    plains: { name: 'Plains', def: 1.00, speed: 1.00, color: '#5d7a4a' },
-    farmland: { name: 'Farmland', def: 0.95, speed: 1.05, color: '#7d8f4a' },
-    forest: { name: 'Forest', def: 1.15, speed: 0.85, color: '#3f6138' },
-    jungle: { name: 'Jungle', def: 1.20, speed: 0.65, color: '#2f6b3c' },
-    desert: { name: 'Desert', def: 0.95, speed: 0.95, color: '#a89258' },
-    steppe: { name: 'Steppe', def: 1.00, speed: 1.00, color: '#8d9455' },
-    tundra: { name: 'Tundra', def: 1.05, speed: 0.75, color: '#6f8577' },
-    taiga: { name: 'Taiga', def: 1.12, speed: 0.80, color: '#41604d' },
-    mountain: { name: 'Mountains', def: 1.40, speed: 0.55, color: '#7a7568' },
-    urban: { name: 'Urban', def: 1.30, speed: 0.90, color: '#6e6f72' },
-    sea: { name: 'Open water', def: 1.00, speed: 1.00, color: '#12283d' }
+    plains: { name: 'Plains', def: 1.00, speed: 1.00, color: '#9aa06a' },
+    farmland: { name: 'Farmland', def: 0.95, speed: 1.05, color: '#b0ac6a'},
+    forest: { name: 'Forest', def: 1.15, speed: 0.85, color: '#6d7f55' },
+    jungle: { name: 'Jungle', def: 1.20, speed: 0.65, color: '#5f7c53' },
+    desert: { name: 'Desert', def: 0.95, speed: 0.95, color: '#cfc08a' },
+    steppe: { name: 'Steppe', def: 1.00, speed: 1.00, color: '#b3ae78' },
+    tundra: { name: 'Tundra', def: 1.05, speed: 0.75, color: '#a3a894' },
+    taiga: { name: 'Taiga', def: 1.12, speed: 0.80, color: '#78876a' },
+    mountain: { name: 'Mountains', def: 1.40, speed: 0.55, color: '#9c927f' },
+    urban: { name: 'Urban', def: 1.30, speed: 0.90, color: '#948d84' },
+    sea: { name: 'Open water', def: 1.00, speed: 1.00, color: '#2b3a44' }
   };
 
   /*
@@ -104,20 +104,25 @@
     return rng.chance(0.5) ? 'jungle' : 'plains';
   }
 
+  /*
+   * What the ground gives up.  Coal and iron sit in the hills, timber in the
+   * forests, grain on the plains, and oil almost nowhere — which is precisely
+   * why 1914's armies still ran on horses and coal.
+   */
   var DEPOSIT_WEIGHTS = {
-    plains: { food: 6, materials: 2, fuel: 1, chemicals: 1 },
-    farmland: { food: 9, materials: 1, fuel: 1, chemicals: 1 },
-    forest: { food: 3, materials: 6, fuel: 1, chemicals: 1 },
-    taiga: { food: 2, materials: 6, fuel: 3, chemicals: 1 },
-    jungle: { food: 3, materials: 2, fuel: 1, chemicals: 5 },
-    desert: { food: 1, materials: 2, fuel: 7, chemicals: 3 },
-    steppe: { food: 5, materials: 2, fuel: 3, chemicals: 1 },
-    tundra: { food: 1, materials: 3, fuel: 6, chemicals: 2 },
-    mountain: { food: 1, materials: 7, fuel: 2, chemicals: 4 },
-    urban: { food: 2, materials: 5, fuel: 2, chemicals: 4 }
+    plains: { grain: 7, timber: 2, coal: 2, iron: 2, oil: 1 },
+    farmland: { grain: 10, timber: 1, coal: 1, iron: 1, oil: 1 },
+    forest: { grain: 2, timber: 9, coal: 2, iron: 2, oil: 1 },
+    taiga: { grain: 1, timber: 9, coal: 2, iron: 2, oil: 2 },
+    jungle: { grain: 3, timber: 7, coal: 1, iron: 2, oil: 1 },
+    desert: { grain: 1, timber: 1, coal: 1, iron: 2, oil: 5 },
+    steppe: { grain: 6, timber: 1, coal: 2, iron: 2, oil: 2 },
+    tundra: { grain: 1, timber: 3, coal: 2, iron: 3, oil: 3 },
+    mountain: { grain: 1, timber: 3, coal: 7, iron: 7, oil: 1 },
+    urban: { grain: 2, timber: 1, coal: 5, iron: 5, oil: 1 }
   };
 
-  /* Real oil provinces get oil, because a fuel map that ignores the Gulf is a
+  /* Real oil provinces get oil, because a oil map that ignores the Gulf is a
    * strange kind of realism. */
   var OIL = [
     box(35, 20, 58, 34),        // Gulf
@@ -130,13 +135,13 @@
   ];
 
   function pickDeposit(rng, terrain, lon, lat) {
-    if (inAny(OIL, lon, lat) && rng.chance(0.7)) return 'fuel';
+    if (inAny(OIL, lon, lat) && rng.chance(0.7)) return 'oil';
     var w = DEPOSIT_WEIGHTS[terrain] || DEPOSIT_WEIGHTS.plains;
     var total = 0, k;
     for (k in w) total += w[k];
     var roll = rng.next() * total;
     for (k in w) { roll -= w[k]; if (roll <= 0) return k; }
-    return 'food';
+    return 'grain';
   }
 
   function cityLevelFor(topCity) {
@@ -164,14 +169,14 @@
    * the mutable, seeded fields are fresh.
    */
   function generate(rng) {
-    var map = SWW.mapdata.load();
+    var map = IA.mapdata.load();
     var provinces = new Array(map.provinceCount);
     var i;
 
     for (i = 0; i < map.provinceCount; i++) {
       var src = map.provinces[i];
-      var lon = SWW.mapdata.lonAt(src.cx);
-      var lat = SWW.mapdata.latAt(src.cy);
+      var lon = IA.mapdata.lonAt(src.cx);
+      var lat = IA.mapdata.latAt(src.cy);
       var prov = {
         id: i,
         isSea: src.isSea,
@@ -219,6 +224,7 @@
         id: row.iso,
         name: row.name,
         color: row.colour,
+        bloc: row.bloc || 'neutral',
         isPlayer: false,
         alive: true,
         ai: true,
@@ -286,5 +292,5 @@
     };
   }
 
-  SWW.worldgen = { generate: generate, TERRAIN: TERRAIN, gamePop: gamePop, cityLevelFor: cityLevelFor };
+  IA.worldgen = { generate: generate, TERRAIN: TERRAIN, gamePop: gamePop, cityLevelFor: cityLevelFor };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

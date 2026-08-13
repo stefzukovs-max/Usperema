@@ -9,8 +9,8 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var SLOT = 'sww3.save.v2';
+  var IA = global.IA = global.IA || {};
+  var SLOT = 'ironaccord.save.v1';
 
   function serialise(state) {
     var provinces = [];
@@ -36,7 +36,7 @@
       });
     }
     return {
-      version: 2,
+      version: 1,
       seed: state.seed,
       playerId: state.playerId,
       time: state.time,
@@ -58,7 +58,7 @@
   function round2(v) { return Math.round(v * 100) / 100; }
 
   function deserialise(data) {
-    var state = SWW.state.createGame({ seed: data.seed, playerNation: data.playerId });
+    var state = IA.state.createGame({ seed: data.seed, playerNation: data.playerId });
     state.time = data.time;
     state.speed = data.speed || '1x';
     state.rngState = data.rngState;
@@ -105,8 +105,8 @@
       n.capitalProvince = sn.capitalProvince;
     }
     state.playerId = data.playerId;
-    SWW.state.recomputeVP(state);
-    SWW.diplomacy.refreshWarCounts(state);
+    IA.state.recomputeVP(state);
+    IA.diplomacy.refreshWarCounts(state);
     state.dirtyProvinces = [];
     return state;
   }
@@ -147,7 +147,7 @@
     try { global.localStorage.removeItem(SLOT); } catch (e) { /* ignore */ }
   }
 
-  SWW.save = {
+  IA.save = {
     save: save, load: load, clear: clear, hasSave: hasSave, peek: peek,
     serialise: serialise, deserialise: deserialise, SLOT: SLOT
   };

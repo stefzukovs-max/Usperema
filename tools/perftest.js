@@ -70,8 +70,8 @@ var URL = 'file://' + path.join(__dirname, '..', 'index.html');
   await page.waitForTimeout(700);
 
   await page.evaluate(function () {
-    SWW.UI.setSpeed('16x');
-    SWW.UI.clearSelection();          // keep the panel out of the measurement
+    IA.UI.setSpeed('16x');
+    IA.UI.clearSelection();          // keep the panel out of the measurement
   });
 
   // Collect raw frame deltas from inside the page.
@@ -121,24 +121,24 @@ var URL = 'file://' + path.join(__dirname, '..', 'index.html');
   console.log('Map frame times — 390x844 at dpr 3, simulation at 16x');
   var results = {};
   results.world = await sample('world view', function () {
-    var r = SWW.UI.renderer;
+    var r = IA.UI.renderer;
     r.camera.zoom = r.minZoom;
-    r.camera.x = SWW.game.current.mapW / 2;
-    r.camera.y = SWW.game.current.mapH / 2;
+    r.camera.x = IA.game.current.mapW / 2;
+    r.camera.y = IA.game.current.mapH / 2;
     r.clampCamera();
   }, 3500);
 
   results.region = await sample('regional (vector)', function () {
-    var r = SWW.UI.renderer;
-    var cap = SWW.game.current.provinces[
-      SWW.game.current.nationById[SWW.game.current.playerId].capitalProvince];
+    var r = IA.UI.renderer;
+    var cap = IA.game.current.provinces[
+      IA.game.current.nationById[IA.game.current.playerId].capitalProvince];
     r.camera.zoom = 6;
     r.camera.x = cap.cx; r.camera.y = cap.cy;
     r.clampCamera();
   }, 3500);
 
   results.close = await sample('close up (vector)', function () {
-    var r = SWW.UI.renderer;
+    var r = IA.UI.renderer;
     r.camera.zoom = 16;
     r.clampCamera();
   }, 3500);
@@ -146,7 +146,7 @@ var URL = 'file://' + path.join(__dirname, '..', 'index.html');
   // Panning is the worst case: the view changes every frame, so nothing that
   // depends on the viewport can be cached between frames.
   results.pan = await sample('panning (vector)', function () {
-    var r = SWW.UI.renderer;
+    var r = IA.UI.renderer;
     r.camera.zoom = 8;
     r.clampCamera();
     window.__pan = setInterval(function () { r.panBy(-9, 0); }, 16);

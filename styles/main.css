@@ -1,21 +1,26 @@
 /* Supremacy: World War III — dark command-console styling, mobile first. */
 
+/*
+ * The whole theme lives in these variables: a 1914 staff map spread on a dark
+ * table — aged paper, olive drab, gun-metal and brass, with ink for lines and
+ * a muted red reserved for danger.  Change these and the game changes with it.
+ */
 :root {
-  --bg: #0a1520;
-  --bg-2: #0e1e2c;
-  --panel: #14293a;
-  --panel-2: #1a3348;
-  --line: #27455c;
-  --text: #dfeaf5;
-  --dim: #8ba4b8;
-  --accent: #58c8ee;
-  --accent-2: #7fe3ff;
-  --gold: #e8b93f;
-  --good: #5fd08a;
-  --warn: #e8b93f;
-  --bad: #e2634f;
-  --danger: #c0392b;
-  --radius: 6px;
+  --bg: #14140f;             /* the table the map lies on */
+  --bg-2: #1b1a15;
+  --panel: #232219;          /* boards and folders */
+  --panel-2: #2c2a1f;
+  --line: #4a4432;           /* pencil rule */
+  --text: #ece3cd;           /* typewriter ink on paper */
+  --dim: #a2977c;
+  --accent: #c8a24a;         /* brass fittings */
+  --accent-2: #e2c37a;
+  --gold: #d9b455;
+  --good: #7d9a5b;           /* olive drab */
+  --warn: #c98f3c;
+  --bad: #b04a38;            /* signal red */
+  --danger: #8f2f22;
+  --radius: 3px;             /* period stationery has square corners */
   --top-h: 92px;
   --nav-h: 60px;
 }
@@ -46,19 +51,26 @@ input { font: inherit; }
   flex-direction: column;
   overflow-y: auto;
   background:
-    radial-gradient(1100px 620px at 50% -8%, #1d4364 0%, rgba(29,67,100,0) 62%),
-    linear-gradient(180deg, #0c1b28 0%, #081019 100%);
+    radial-gradient(1200px 680px at 50% -10%, #3a3423 0%, rgba(58,52,35,0) 64%),
+    linear-gradient(180deg, #1b1a14 0%, #0f0e0a 100%);
 }
 .menu-inner { max-width: 1040px; margin: 0 auto; padding: 34px 18px 60px; width: 100%; }
 
 .brand { text-align: center; margin-bottom: 26px; }
+.brand-mark { width: 88px; height: 88px; margin-bottom: 10px; }
+.mk-ring { fill: none; stroke: var(--accent); stroke-width: 2.2; opacity: .9; }
+.mk-ring.thin { stroke-width: 1.1; opacity: .55; }
+.mk-cross { stroke: var(--accent); stroke-width: 1.1; opacity: .5; }
+.mk-needle { fill: var(--accent-2); opacity: .95; }
+.mk-rifles { stroke: var(--dim); stroke-width: 1.6; opacity: .45; }
 .brand-kicker {
-  letter-spacing: .42em; text-transform: uppercase; font-size: 13px;
-  color: var(--accent); margin-bottom: 6px; font-weight: 600;
+  letter-spacing: .58em; text-transform: uppercase; font-size: 12px;
+  color: var(--accent); margin-bottom: 8px; font-weight: 600;
 }
 .brand-title {
   font-size: clamp(34px, 8vw, 62px); line-height: 1; letter-spacing: .04em;
-  text-transform: uppercase; text-shadow: 0 4px 24px rgba(88,200,238,.28);
+  text-transform: uppercase; text-shadow: 0 3px 20px rgba(200,162,74,.22);
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, serif;
 }
 .brand-title span { color: var(--accent); }
 .brand-sub { color: var(--dim); max-width: 620px; margin: 14px auto 0; line-height: 1.55; }
@@ -76,10 +88,10 @@ input { font: inherit; }
 .seed-field input:focus { border-color: var(--accent); }
 
 .primary-btn {
-  background: linear-gradient(180deg, #d4553f, #a83323);
-  border: 1px solid #e8735c; border-radius: var(--radius);
-  padding: 13px 30px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-  box-shadow: 0 4px 16px rgba(200,60,40,.3);
+  background: linear-gradient(180deg, #7d3b2c, #5c2519);
+  border: 1px solid var(--accent); border-radius: var(--radius);
+  padding: 13px 30px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+  box-shadow: 0 3px 14px rgba(0,0,0,.45);
 }
 .primary-btn:hover { filter: brightness(1.1); }
 .secondary-btn {
@@ -144,7 +156,7 @@ input { font: inherit; }
 #game { flex-direction: column; }
 
 #topbar {
-  flex: 0 0 auto; background: linear-gradient(180deg, #12283a, #0d1d2b);
+  flex: 0 0 auto; background: linear-gradient(180deg, #2a2820, #1a1913);
   border-bottom: 1px solid var(--line); padding: 6px 10px 5px;
   padding-top: max(6px, env(safe-area-inset-top));
 }
@@ -277,7 +289,7 @@ input { font: inherit; }
 
 .build-btn {
   display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
-  background: linear-gradient(180deg, #2c6a8c, #1d4a63); border: 1px solid #3f89ad;
+  background: linear-gradient(180deg, #4a5238, #333a26); border: 1px solid #6b7350;
   border-radius: 4px; padding: 5px 9px; font-size: 12px; font-weight: 600; flex: 0 0 auto;
 }
 .build-btn:hover { filter: brightness(1.12); }
@@ -307,10 +319,9 @@ input { font: inherit; }
   font-size: 11px; letter-spacing: .06em; text-transform: uppercase; font-weight: 600;
 }
 .act span:first-child { font-size: 17px; }
-.act.move { background: #1e5738; border-color: #2f7d51; }
-.act.attack { background: #6b2820; border-color: #a3402f; }
-.act.bombard { background: #4a3a12; border-color: #7d6320; }
-.act.missile { background: #45215c; border-color: #6f3a90; }
+.act.move { background: #3c4a2e; border-color: #5d7044; }
+.act.attack { background: #5c2519; border-color: #8f4433; }
+.act.bombard { background: #4a3d1c; border-color: #7d6a2c; }
 .act.stop { background: #3a2020; border-color: #6b3232; }
 .act:hover { filter: brightness(1.15); }
 
@@ -323,11 +334,11 @@ input { font: inherit; }
 .ghost.active { background: var(--accent); color: #06131c; border-color: var(--accent-2); }
 .ghost.disabled, .ok-btn.disabled { opacity: .4; pointer-events: none; }
 .ok-btn {
-  border: 1px solid #2f7d51; background: #1e5738; border-radius: 4px;
+  border: 1px solid #5d7044; background: #3c4a2e; border-radius: 4px;
   padding: 6px 12px; font-size: 12.5px; font-weight: 600;
 }
 .danger-btn {
-  border: 1px solid #a3402f; background: #6b2820; border-radius: 4px;
+  border: 1px solid #8f4433; background: #5c2519; border-radius: 4px;
   padding: 6px 12px; font-size: 12.5px; font-weight: 600;
 }
 .wide { width: 100%; padding: 11px; }
@@ -339,7 +350,7 @@ input { font: inherit; }
 /* ------------------------------------------------------------------- nav */
 
 .bottom-nav {
-  flex: 0 0 auto; display: flex; background: linear-gradient(180deg, #16293a, #0d1c29);
+  flex: 0 0 auto; display: flex; background: linear-gradient(180deg, #2a2820, #16150f);
   border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
 }
 .nav-btn {
@@ -486,26 +497,26 @@ input { font: inherit; }
   animation: popIn .14s ease-out;
 }
 .confirm-head {
-  background: linear-gradient(180deg, #f4f8fb, #d8e4ec); color: #10222f;
+  background: linear-gradient(180deg, #efe6cc, #d3c7a3); color: #241f14;
   font-weight: 700; font-size: 17px; letter-spacing: .07em; text-transform: uppercase;
   padding: 13px 16px;
 }
 .confirm-body {
-  background: #17293a;
+  background: var(--panel);
   padding: 16px; line-height: 1.5; color: var(--text); font-size: 14.5px;
 }
 .confirm-actions {
-  display: flex; gap: 10px; padding: 12px 16px 16px; background: #17293a;
+  display: flex; gap: 10px; padding: 12px 16px 16px; background: var(--panel);
 }
 .confirm-ok, .confirm-cancel {
   flex: 1 1 0; display: flex; align-items: center; justify-content: center; gap: 8px;
   padding: 12px; border-radius: 4px; font-weight: 700; letter-spacing: .06em;
   text-transform: uppercase; font-size: 13px;
   border: 1px solid var(--accent-2);
-  background: linear-gradient(180deg, #2f7fa3, #1d4f68);
+  background: linear-gradient(180deg, #4a5238, #333a26);
 }
-.confirm-ok.danger { border-color: #e8735c; background: linear-gradient(180deg, #b8483a, #7d2b21); }
-.confirm-cancel { border-color: #6f8ea4; background: linear-gradient(180deg, #35576d, #223d4f); }
+.confirm-ok.danger { border-color: #b04a38; background: linear-gradient(180deg, #7d3b2c, #5c2519); }
+.confirm-cancel { border-color: var(--line); background: linear-gradient(180deg, #3a372a, #26241a); }
 .confirm-ok:hover, .confirm-cancel:hover { filter: brightness(1.12); }
 .confirm-glyph { font-size: 15px; }
 

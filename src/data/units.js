@@ -1,148 +1,224 @@
 /*
- * Unit roster.
+ * The order of battle, 1914-1918.
  *
- * Combat resolves through four target classes: inf (foot/mechanised), arm
- * (armour), air, sea.  Every unit lists what it can hit (`atk`) and how well
- * it survives being hit by each class (`def`).
+ * Combat resolves through four target classes: inf (foot, horse and gun), arm
+ * (armour), air, sea.  Every unit lists what it can hit (`atk`) and how well it
+ * survives being hit by each class (`def`).
  *
  * speed   province-grid cells per game hour (a province is ~6-10 cells wide)
- * hp      hit points per battalion; a stack of 3 infantry has 90 hp
- * range   provinces an attack can reach without entering the target (0 = melee)
- * domain  'land' | 'sea' | 'air' — restricts which provinces it may occupy
+ * hp      hit points per battalion; three infantry battalions field 90 hp
+ * range   provinces an attack reaches without entering the target (0 = assault)
+ * domain  'land' | 'sea' | 'air' — which provinces it may occupy
+ * shells  ammunition burned per hour of combat; the shell crisis was real
+ *
+ * The shape of the war is in these numbers.  Infantry in the open die to
+ * machine guns and artillery; guns cannot take ground; cavalry is fast and
+ * obsolete against entrenchment; armour arrives late, slow and decisive.
  */
 (function (global) {
   'use strict';
 
   var UNITS = [
+    // --- Foot ------------------------------------------------------------
     {
-      id: 'infantry', name: 'Infantry', short: 'INF', cat: 'inf', domain: 'land', icon: '♟',
-      hp: 30, speed: 0.42, range: 0, view: 12,
-      atk: { inf: 4.0, arm: 1.6, air: 0.8, sea: 0.6 },
-      def: { inf: 6.5, arm: 4.5, air: 3.0, sea: 3.0 },
-      cost: { manpower: 240, food: 140, materials: 90, cash: 900 },
-      time: 8, upkeep: { food: 3, cash: 6 }, ammo: 1.5,
-      req: { building: 'recruiting', level: 1 },
-      desc: 'Cheap, tough in cover, and the backbone of any occupation force.'
+      id: 'line_infantry', name: 'Line Infantry', short: 'INF', cat: 'inf', domain: 'land', icon: '♟',
+      hp: 30, speed: 0.40, range: 0, view: 12,
+      atk: { inf: 4.0, arm: 1.2, air: 0.6, sea: 0.5 },
+      def: { inf: 6.0, arm: 4.0, air: 3.0, sea: 3.0 },
+      cost: { manpower: 240, grain: 140, iron: 60, money: 800 },
+      time: 8, upkeep: { grain: 3, money: 6 }, shells: 1.5,
+      req: { building: 'barracks', level: 1 },
+      desc: 'The rifle company that holds the line. Cheap, patient, and the only thing that truly takes ground.'
     },
     {
-      id: 'mech_inf', name: 'Mechanised Infantry', short: 'MEC', cat: 'inf', domain: 'land', icon: '⛁',
-      hp: 38, speed: 0.72, range: 0, view: 14,
-      atk: { inf: 6.5, arm: 4.2, air: 1.6, sea: 1.0 },
-      def: { inf: 8.5, arm: 7.0, air: 4.0, sea: 3.5 },
-      cost: { manpower: 220, food: 130, materials: 240, fuel: 160, cash: 2100 },
-      time: 14, upkeep: { food: 4, fuel: 5, cash: 13 }, ammo: 2.5,
-      req: { building: 'recruiting', level: 2, tech: 'mech_inf' },
-      desc: 'Infantry with wheels. Fast enough to plug a hole before it opens.'
+      id: 'assault_infantry', name: 'Assault Infantry', short: 'AST', cat: 'inf', domain: 'land', icon: '⚔',
+      hp: 34, speed: 0.46, range: 0, view: 13,
+      atk: { inf: 8.5, arm: 3.0, air: 0.8, sea: 0.6 },
+      def: { inf: 7.0, arm: 4.5, air: 3.2, sea: 3.0 },
+      cost: { manpower: 300, grain: 170, iron: 140, money: 2100 },
+      time: 15, upkeep: { grain: 4, money: 12 }, shells: 3.0,
+      req: { building: 'barracks', level: 2, tech: 'infiltration' },
+      desc: 'Storm troops trained to bypass strongpoints rather than walk into them. Expensive in men.'
     },
     {
-      id: 'light_tank', name: 'Light Tank', short: 'LT', cat: 'arm', domain: 'land', icon: '▰',
-      hp: 44, speed: 0.68, range: 0, view: 14,
-      atk: { inf: 9.0, arm: 6.5, air: 1.2, sea: 1.4 },
-      def: { inf: 9.0, arm: 8.0, air: 3.5, sea: 3.5 },
-      cost: { manpower: 160, materials: 380, fuel: 240, cash: 2600 },
-      time: 18, upkeep: { food: 2, fuel: 8, cash: 16 }, ammo: 3.0,
-      req: { building: 'arms_factory', level: 1, tech: 'armour' },
-      desc: 'Breakthrough armour. Punishes infantry in the open, folds to AT fire.'
+      id: 'guard_infantry', name: 'Guard Infantry', short: 'GRD', cat: 'inf', domain: 'land', icon: '♜',
+      hp: 40, speed: 0.36, range: 0, view: 12,
+      atk: { inf: 5.5, arm: 2.0, air: 1.0, sea: 0.6 },
+      def: { inf: 11.0, arm: 7.0, air: 4.0, sea: 3.5 },
+      cost: { manpower: 320, grain: 190, iron: 130, money: 2300 },
+      time: 16, upkeep: { grain: 4, money: 13 }, shells: 2.2,
+      req: { building: 'barracks', level: 2, tech: 'defence_in_depth' },
+      desc: 'Veteran regiments held for the hardest ground. Slow to move, very hard to shift.'
     },
     {
-      id: 'mbt', name: 'Main Battle Tank', short: 'MBT', cat: 'arm', domain: 'land', icon: '■',
-      hp: 62, speed: 0.56, range: 0, view: 14,
-      atk: { inf: 13.0, arm: 14.0, air: 1.8, sea: 2.0 },
-      def: { inf: 15.0, arm: 14.0, air: 5.0, sea: 5.0 },
-      cost: { manpower: 200, materials: 720, fuel: 420, chemicals: 120, cash: 5200 },
-      time: 30, upkeep: { food: 3, fuel: 16, cash: 30 }, ammo: 5.0,
-      req: { building: 'arms_factory', level: 2, tech: 'mbt' },
-      desc: 'The hammer. Expensive to field, decisive where it arrives.'
+      id: 'machine_gun', name: 'Machine Gun Company', short: 'MG', cat: 'inf', domain: 'land', icon: '⁙',
+      hp: 24, speed: 0.30, range: 0, view: 11,
+      atk: { inf: 7.0, arm: 1.0, air: 2.5, sea: 0.4 },
+      def: { inf: 14.0, arm: 3.0, air: 5.0, sea: 2.0 },
+      cost: { manpower: 150, grain: 80, iron: 190, money: 1600 },
+      time: 12, upkeep: { grain: 2, money: 9 }, shells: 4.0,
+      req: { building: 'workshop', level: 1, tech: 'machine_guns' },
+      desc: 'Interlocking fire that makes an open field impassable. Nearly useless on the advance.'
+    },
+
+    // --- Horse -----------------------------------------------------------
+    {
+      id: 'cavalry', name: 'Cavalry', short: 'CAV', cat: 'inf', domain: 'land', icon: '♞',
+      hp: 28, speed: 0.85, range: 0, view: 18,
+      atk: { inf: 5.5, arm: 1.0, air: 0.4, sea: 0.4 },
+      def: { inf: 4.0, arm: 2.5, air: 2.5, sea: 2.0 },
+      cost: { manpower: 200, grain: 220, iron: 50, money: 1500 },
+      time: 10, upkeep: { grain: 6, money: 10 }, shells: 1.2,
+      req: { building: 'barracks', level: 1 },
+      desc: 'Fast over open country and lethal against a broken enemy. Against wire and machine guns, a memory.'
     },
     {
-      id: 'artillery', name: 'Artillery', short: 'ART', cat: 'inf', domain: 'land', icon: '✲',
-      hp: 26, speed: 0.34, range: 1, view: 10,
-      atk: { inf: 14.0, arm: 8.0, air: 0.4, sea: 5.0 },
+      id: 'scout_cavalry', name: 'Scout Cavalry', short: 'SCT', cat: 'inf', domain: 'land', icon: '⚐',
+      hp: 20, speed: 1.05, range: 0, view: 30,
+      atk: { inf: 2.0, arm: 0.5, air: 0.3, sea: 0.3 },
+      def: { inf: 3.0, arm: 2.0, air: 2.0, sea: 1.5 },
+      cost: { manpower: 120, grain: 150, money: 900 },
+      time: 7, upkeep: { grain: 4, money: 6 }, shells: 0.4,
+      req: { building: 'barracks', level: 1 },
+      desc: 'Eyes for the army. Sees far, fights badly, and should never be caught.'
+    },
+
+    // --- Guns ------------------------------------------------------------
+    {
+      id: 'trench_mortar', name: 'Trench Mortar', short: 'MTR', cat: 'inf', domain: 'land', icon: '↟',
+      hp: 20, speed: 0.32, range: 1, view: 9,
+      atk: { inf: 8.0, arm: 2.5, air: 0.2, sea: 1.0 },
       def: { inf: 3.0, arm: 2.0, air: 1.5, sea: 1.5 },
-      cost: { manpower: 180, materials: 400, chemicals: 160, cash: 3000 },
-      time: 22, upkeep: { food: 2, cash: 12 }, ammo: 8.0,
-      req: { building: 'arms_factory', level: 1, tech: 'artillery' },
-      desc: 'Shells the neighbouring province without ever entering it. Helpless if reached.'
+      cost: { manpower: 120, iron: 170, coal: 60, money: 1200 },
+      time: 10, upkeep: { grain: 2, money: 7 }, shells: 5.0,
+      req: { building: 'workshop', level: 1 },
+      desc: 'Drops shells into the next trench line. Short reach, cheap, and always hungry for ammunition.'
     },
     {
-      id: 'sam', name: 'SAM Battery', short: 'SAM', cat: 'inf', domain: 'land', icon: '▲',
-      hp: 28, speed: 0.36, range: 1, view: 20,
-      atk: { inf: 1.0, arm: 0.8, air: 22.0, sea: 0.6 },
-      def: { inf: 4.0, arm: 3.0, air: 9.0, sea: 2.0 },
-      cost: { manpower: 140, materials: 320, chemicals: 200, cash: 2800 },
-      time: 20, upkeep: { food: 2, cash: 11 }, ammo: 3.0,
-      req: { building: 'arms_factory', level: 1, tech: 'air_defence' },
-      desc: 'Denies the sky over itself and one province out. Useless on the ground.'
+      id: 'field_artillery', name: 'Field Artillery', short: 'ART', cat: 'inf', domain: 'land', icon: '✲',
+      hp: 26, speed: 0.30, range: 1, view: 10,
+      atk: { inf: 14.0, arm: 7.0, air: 0.4, sea: 4.0 },
+      def: { inf: 3.0, arm: 2.0, air: 1.5, sea: 1.5 },
+      cost: { manpower: 180, iron: 380, coal: 140, money: 2800 },
+      time: 20, upkeep: { grain: 3, money: 16 }, shells: 8.0,
+      req: { building: 'workshop', level: 1, tech: 'quick_firing_guns' },
+      desc: 'The war’s great killer. Shells the neighbouring province, and is helpless once reached.'
     },
     {
-      id: 'helicopter', name: 'Attack Helicopter', short: 'HEL', cat: 'air', domain: 'land', icon: '✥',
-      hp: 34, speed: 1.9, range: 1, view: 22,
-      atk: { inf: 11.0, arm: 13.0, air: 5.0, sea: 6.0 },
-      def: { inf: 6.0, arm: 6.0, air: 6.0, sea: 5.0 },
-      cost: { manpower: 120, materials: 460, fuel: 380, chemicals: 140, cash: 4400 },
-      time: 26, upkeep: { fuel: 18, cash: 24 }, ammo: 4.5,
-      req: { building: 'airbase', level: 1, tech: 'rotary_wing' },
-      desc: 'Tank killer that lands anywhere friendly. Shredded by SAMs.'
+      id: 'heavy_artillery', name: 'Heavy Artillery', short: 'HVY', cat: 'inf', domain: 'land', icon: '✹',
+      hp: 30, speed: 0.20, range: 2, view: 10,
+      atk: { inf: 20.0, arm: 12.0, air: 0.3, sea: 8.0 },
+      def: { inf: 3.5, arm: 2.5, air: 1.5, sea: 2.0 },
+      cost: { manpower: 260, iron: 780, coal: 320, money: 6200 },
+      time: 34, upkeep: { grain: 4, money: 34 }, shells: 16.0,
+      req: { building: 'factory', level: 1, tech: 'siege_guns' },
+      desc: 'Siege pieces that reduce forts to rubble from two provinces away. Ruinously slow to move.'
+    },
+
+    // --- Armour ----------------------------------------------------------
+    {
+      id: 'armoured_car', name: 'Armoured Car', short: 'AC', cat: 'arm', domain: 'land', icon: '▰',
+      hp: 34, speed: 0.80, range: 0, view: 16,
+      atk: { inf: 7.0, arm: 4.0, air: 0.8, sea: 0.8 },
+      def: { inf: 8.0, arm: 6.0, air: 3.0, sea: 3.0 },
+      cost: { manpower: 130, iron: 300, oil: 180, money: 2400 },
+      time: 16, upkeep: { grain: 1, oil: 7, money: 15 }, shells: 2.5,
+      req: { building: 'workshop', level: 2, tech: 'motorisation' },
+      desc: 'Fast on a road and stopped by a ditch. Good for exploiting a gap, poor for making one.'
     },
     {
-      id: 'fighter', name: 'Fighter Jet', short: 'FTR', cat: 'air', domain: 'air', icon: '➤',
-      hp: 30, speed: 3.6, range: 0, view: 30,
-      atk: { inf: 4.0, arm: 3.0, air: 20.0, sea: 5.0 },
-      def: { inf: 7.0, arm: 7.0, air: 12.0, sea: 6.0 },
-      cost: { manpower: 90, materials: 520, fuel: 460, chemicals: 220, cash: 6200 },
-      time: 30, upkeep: { fuel: 26, cash: 34 }, ammo: 4.0,
-      req: { building: 'airbase', level: 2, tech: 'jet_engine' },
-      desc: 'Owns the air. Must return to an airbase before its fuel runs dry.'
+      id: 'tank', name: 'Tank', short: 'TNK', cat: 'arm', domain: 'land', icon: '■',
+      hp: 55, speed: 0.34, range: 0, view: 12,
+      atk: { inf: 15.0, arm: 9.0, air: 0.6, sea: 1.2 },
+      def: { inf: 16.0, arm: 11.0, air: 4.0, sea: 4.0 },
+      cost: { manpower: 200, iron: 820, oil: 380, coal: 200, money: 5600 },
+      time: 32, upkeep: { grain: 2, oil: 15, money: 34 }, shells: 5.0,
+      req: { building: 'factory', level: 2, tech: 'landships' },
+      desc: 'Crawls over wire and trench at walking pace and breaks the deadlock. Unreliable, and terrifying.'
+    },
+
+    // --- Air -------------------------------------------------------------
+    {
+      id: 'recon_plane', name: 'Reconnaissance Aircraft', short: 'REC', cat: 'air', domain: 'air', icon: '⌁',
+      hp: 18, speed: 2.6, range: 0, view: 40,
+      atk: { inf: 1.0, arm: 0.5, air: 2.0, sea: 0.8 },
+      def: { inf: 5.0, arm: 5.0, air: 4.0, sea: 4.0 },
+      cost: { manpower: 60, timber: 180, iron: 120, oil: 160, money: 2200 },
+      time: 14, upkeep: { oil: 10, money: 14 }, shells: 0.5,
+      req: { building: 'airfield', level: 1, tech: 'aviation' },
+      desc: 'Spots the enemy and ranges the guns. Wood, wire and canvas; it fights only when cornered.'
     },
     {
-      id: 'bomber', name: 'Strategic Bomber', short: 'BMB', cat: 'air', domain: 'air', icon: '✈',
-      hp: 40, speed: 2.6, range: 0, view: 26,
-      atk: { inf: 20.0, arm: 15.0, air: 2.0, sea: 12.0 },
-      def: { inf: 6.0, arm: 6.0, air: 5.0, sea: 5.0 },
-      cost: { manpower: 140, materials: 780, fuel: 620, chemicals: 300, cash: 9000 },
-      time: 40, upkeep: { fuel: 36, cash: 50 }, ammo: 9.0,
-      req: { building: 'airbase', level: 3, tech: 'strategic_bombing' },
-      desc: 'Flattens stacks and buildings alike. Needs friendly skies to survive.'
+      id: 'fighter', name: 'Fighter Scout', short: 'FTR', cat: 'air', domain: 'air', icon: '➤',
+      hp: 22, speed: 3.2, range: 0, view: 26,
+      atk: { inf: 3.0, arm: 1.5, air: 14.0, sea: 2.0 },
+      def: { inf: 7.0, arm: 7.0, air: 9.0, sea: 5.0 },
+      cost: { manpower: 70, timber: 200, iron: 220, oil: 240, money: 3600 },
+      time: 20, upkeep: { oil: 16, money: 22 }, shells: 2.0,
+      req: { building: 'airfield', level: 2, tech: 'interceptors' },
+      desc: 'Clears the sky so your own spotters can work. Owning the air means owning the artillery war.'
+    },
+    {
+      id: 'bomber', name: 'Heavy Bomber', short: 'BMB', cat: 'air', domain: 'air', icon: '✈',
+      hp: 30, speed: 2.2, range: 0, view: 22,
+      atk: { inf: 14.0, arm: 9.0, air: 1.5, sea: 7.0 },
+      def: { inf: 6.0, arm: 6.0, air: 4.0, sea: 5.0 },
+      cost: { manpower: 110, timber: 320, iron: 420, oil: 420, money: 6800 },
+      time: 30, upkeep: { oil: 26, money: 38 }, shells: 7.0,
+      req: { building: 'airfield', level: 3, tech: 'strategic_bombing' },
+      desc: 'Carries the war behind the trenches, to railheads and factories. Needs a friendly sky to survive.'
+    },
+
+    // --- Sea -------------------------------------------------------------
+    {
+      id: 'transport', name: 'Troop Transport', short: 'TRP', cat: 'sea', domain: 'sea', icon: '⛴',
+      hp: 40, speed: 1.05, range: 0, view: 14,
+      atk: { inf: 0.5, arm: 0.5, air: 0.5, sea: 0.8 },
+      def: { inf: 4.0, arm: 4.0, air: 4.0, sea: 3.0 },
+      cost: { manpower: 140, timber: 300, iron: 320, coal: 180, money: 2600 },
+      time: 18, upkeep: { grain: 3, coal: 8, money: 14 }, shells: 0.2,
+      req: { building: 'harbour', level: 1 },
+      desc: 'Merchant hulls in grey paint. Defenceless, and the fastest way an army crosses deep water.'
     },
     {
       id: 'destroyer', name: 'Destroyer', short: 'DD', cat: 'sea', domain: 'sea', icon: '⚓',
-      hp: 70, speed: 1.15, range: 1, view: 26,
-      atk: { inf: 9.0, arm: 7.0, air: 8.0, sea: 14.0 },
-      def: { inf: 10.0, arm: 10.0, air: 10.0, sea: 12.0 },
-      cost: { manpower: 300, materials: 900, fuel: 520, cash: 7600 },
-      time: 36, upkeep: { food: 5, fuel: 22, cash: 40 }, ammo: 6.0,
-      req: { building: 'naval_base', level: 1, tech: 'naval_doctrine' },
-      desc: 'Escort and shore bombardment. Shells the coast from open water.'
+      hp: 55, speed: 1.35, range: 1, view: 26,
+      atk: { inf: 6.0, arm: 5.0, air: 5.0, sea: 12.0 },
+      def: { inf: 9.0, arm: 9.0, air: 8.0, sea: 10.0 },
+      cost: { manpower: 220, iron: 700, coal: 400, oil: 120, money: 5400 },
+      time: 26, upkeep: { grain: 5, coal: 16, money: 32 }, shells: 5.0,
+      req: { building: 'harbour', level: 1, tech: 'naval_gunnery' },
+      desc: 'Fast escort and submarine hunter. The screen without which a battle fleet cannot sail.'
     },
     {
       id: 'submarine', name: 'Submarine', short: 'SUB', cat: 'sea', domain: 'sea', icon: '◢',
-      hp: 46, speed: 0.95, range: 0, view: 14,
-      atk: { inf: 2.0, arm: 2.0, air: 0.5, sea: 26.0 },
-      def: { inf: 5.0, arm: 5.0, air: 14.0, sea: 6.0 },
-      cost: { manpower: 220, materials: 780, fuel: 480, chemicals: 180, cash: 8200 },
-      time: 40, upkeep: { food: 4, fuel: 18, cash: 42 }, ammo: 5.0,
-      req: { building: 'naval_base', level: 2, tech: 'submarine_warfare' },
-      desc: 'Hunts shipping and transports. Nearly blind, nearly invisible.'
+      hp: 34, speed: 0.90, range: 0, view: 12,
+      atk: { inf: 1.5, arm: 1.5, air: 0.4, sea: 22.0 },
+      def: { inf: 4.0, arm: 4.0, air: 11.0, sea: 5.0 },
+      cost: { manpower: 160, iron: 620, coal: 220, oil: 260, money: 6000 },
+      time: 30, upkeep: { grain: 4, oil: 14, money: 34 }, shells: 4.0,
+      req: { building: 'harbour', level: 2, tech: 'submarine_warfare' },
+      desc: 'Hunts transports and capital ships alike. Almost blind, almost invisible, and hated for both.'
     },
     {
-      id: 'carrier', name: 'Aircraft Carrier', short: 'CV', cat: 'sea', domain: 'sea', icon: '✦',
-      hp: 110, speed: 0.9, range: 2, view: 40,
-      atk: { inf: 14.0, arm: 11.0, air: 16.0, sea: 18.0 },
-      def: { inf: 12.0, arm: 12.0, air: 9.0, sea: 10.0 },
-      cost: { manpower: 600, materials: 2200, fuel: 1400, chemicals: 500, cash: 26000 },
-      time: 72, upkeep: { food: 14, fuel: 60, cash: 130 }, ammo: 16.0,
-      req: { building: 'naval_base', level: 3, tech: 'carrier_ops' },
-      desc: 'A mobile airbase. Projects power two provinces inland from any sea.'
+      id: 'cruiser', name: 'Armoured Cruiser', short: 'CA', cat: 'sea', domain: 'sea', icon: '✦',
+      hp: 80, speed: 1.10, range: 1, view: 30,
+      atk: { inf: 11.0, arm: 9.0, air: 5.0, sea: 16.0 },
+      def: { inf: 13.0, arm: 13.0, air: 9.0, sea: 13.0 },
+      cost: { manpower: 420, iron: 1500, coal: 800, oil: 200, money: 12000 },
+      time: 44, upkeep: { grain: 9, coal: 30, money: 70 }, shells: 9.0,
+      req: { building: 'harbour', level: 2, tech: 'naval_gunnery' },
+      desc: 'Guards trade and raids it. Fast enough to choose its fights, strong enough to win most of them.'
     },
     {
-      id: 'ballistic_missile', name: 'Ballistic Missile', short: 'BM', cat: 'missile', domain: 'land', icon: '↑',
-      hp: 10, speed: 0.30, range: 14, view: 0,
-      atk: { inf: 120.0, arm: 110.0, air: 0.0, sea: 90.0 },
-      def: { inf: 1.0, arm: 1.0, air: 1.0, sea: 1.0 },
-      cost: { manpower: 80, materials: 900, fuel: 700, chemicals: 900, cash: 15000 },
-      time: 48, upkeep: { cash: 20 }, ammo: 0,
-      req: { building: 'arms_factory', level: 3, tech: 'rocketry' },
-      desc: 'One-shot strike at strategic range. Wrecks a stack and the province morale with it.'
+      id: 'dreadnought', name: 'Dreadnought', short: 'BB', cat: 'sea', domain: 'sea', icon: '⬤',
+      hp: 150, speed: 0.85, range: 2, view: 32,
+      atk: { inf: 18.0, arm: 15.0, air: 6.0, sea: 30.0 },
+      def: { inf: 22.0, arm: 22.0, air: 12.0, sea: 22.0 },
+      cost: { manpower: 900, iron: 4200, coal: 2000, oil: 600, money: 34000 },
+      time: 80, upkeep: { grain: 20, coal: 70, money: 210 }, shells: 22.0,
+      req: { building: 'harbour', level: 3, tech: 'dreadnoughts' },
+      desc: 'A national treasury turned into armour plate. Rules any sea it enters, and too precious to risk.'
     }
   ];
 
@@ -150,19 +226,20 @@
   for (var i = 0; i < UNITS.length; i++) BY_ID[UNITS[i].id] = UNITS[i];
 
   /** Resource keys a unit may cost or consume. */
-  var RESOURCES = ['manpower', 'food', 'materials', 'fuel', 'ammo', 'chemicals', 'cash'];
+  var RESOURCES = ['manpower', 'grain', 'timber', 'coal', 'iron', 'oil', 'shells', 'money'];
 
   var RESOURCE_META = {
-    manpower: { name: 'Manpower', icon: '⛑', color: '#8ea6b8' },
-    food: { name: 'Food', icon: '\u{1F4E6}', color: '#7fbf5f' },
-    materials: { name: 'Materials', icon: '⚙', color: '#7fa8c8' },
-    fuel: { name: 'Fuel', icon: '⛽', color: '#d05f4f' },
-    ammo: { name: 'Ammunition', icon: '\u{1F9F0}', color: '#8fbf4f' },
-    chemicals: { name: 'Chemicals', icon: '⚗', color: '#d0904f' },
-    cash: { name: 'Cash', icon: '\u{1F4B5}', color: '#5fbf8f' },
-    gold: { name: 'Gold', icon: '\u{1F7E1}', color: '#e0b040' }
+    manpower: { name: 'Manpower', icon: '⛊', color: '#8ea6b8' },
+    grain: { name: 'Grain', icon: '\u{1F33E}', color: '#c9a24a' },
+    timber: { name: 'Timber', icon: '\u{1F332}', color: '#8a6a3f' },
+    coal: { name: 'Coal', icon: '⬢', color: '#6c7076' },
+    iron: { name: 'Iron', icon: '⛓', color: '#8fa3b5' },
+    oil: { name: 'Oil', icon: '\u{1F6E2}', color: '#4a5058' },
+    shells: { name: 'Shells', icon: '\u{1F4A5}', color: '#a8863f' },
+    money: { name: 'Treasury', icon: '\u{1F4B0}', color: '#5fbf8f' },
+    gold: { name: 'War Bonds', icon: '\u{1F396}', color: '#e0b040' }
   };
 
-  global.SWW = global.SWW || {};
-  global.SWW.UnitData = { UNITS: UNITS, BY_ID: BY_ID, RESOURCES: RESOURCES, RESOURCE_META: RESOURCE_META };
+  global.IA = global.IA || {};
+  global.IA.UnitData = { UNITS: UNITS, BY_ID: BY_ID, RESOURCES: RESOURCES, RESOURCE_META: RESOURCE_META };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

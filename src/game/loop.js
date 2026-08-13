@@ -5,13 +5,13 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
+  var IA = global.IA = global.IA || {};
 
   var DAILY_GOLD = 3;
 
   function advance(state, hours) {
     if (state.gameOver) return;
-    var rng = new SWW.RNG(state.rngState);
+    var rng = new IA.RNG(state.rngState);
     var remaining = hours;
     var guard = 0;
     while (remaining > 0.0001 && guard++ < 512) {
@@ -27,30 +27,30 @@
   }
 
   function stepHour(state, rng, hours) {
-    SWW.orders.tickMovement(state, hours);
-    SWW.combat.tick(state, rng, hours);
-    SWW.economy.tickResources(state, hours);
-    SWW.economy.tickConstruction(state, hours);
-    SWW.economy.tickProduction(state, hours);
-    SWW.economy.tickResearch(state, hours);
-    SWW.economy.tickRepair(state, hours);
-    SWW.economy.tickEntrench(state, hours);
-    SWW.economy.tickMorale(state, hours);
-    SWW.market.tick(state, rng, hours);
-    SWW.diplomacy.tickRelations(state, rng, hours);
-    SWW.ai.tick(state, rng, hours);
+    IA.orders.tickMovement(state, hours);
+    IA.combat.tick(state, rng, hours);
+    IA.economy.tickResources(state, hours);
+    IA.economy.tickConstruction(state, hours);
+    IA.economy.tickProduction(state, hours);
+    IA.economy.tickResearch(state, hours);
+    IA.economy.tickRepair(state, hours);
+    IA.economy.tickEntrench(state, hours);
+    IA.economy.tickMorale(state, hours);
+    IA.market.tick(state, rng, hours);
+    IA.diplomacy.tickRelations(state, rng, hours);
+    IA.ai.tick(state, rng, hours);
   }
 
   function stepDay(state, rng) {
     for (var i = 0; i < state.nations.length; i++) {
       var nation = state.nations[i];
       if (!nation.alive) continue;
-      SWW.economy.refreshSupplyDistance(state, nation);
+      IA.economy.refreshSupplyDistance(state, nation);
       if (nation.isPlayer) nation.resources.gold += DAILY_GOLD;
     }
-    SWW.diplomacy.refreshWarCounts(state);
-    SWW.diplomacy.refreshContacts(state);
-    SWW.state.recomputeVP(state);
+    IA.diplomacy.refreshWarCounts(state);
+    IA.diplomacy.refreshContacts(state);
+    IA.state.recomputeVP(state);
     checkVictory(state);
   }
 
@@ -58,13 +58,13 @@
     var alive = [];
     for (var i = 0; i < state.nations.length; i++) {
       var n = state.nations[i];
-      if (n.alive && n.provinces.length === 0) SWW.combat.checkElimination(state, n.id);
+      if (n.alive && n.provinces.length === 0) IA.combat.checkElimination(state, n.id);
       if (n.alive) alive.push(n);
     }
     var player = state.nationById[state.playerId];
     if (player && !player.alive) {
       state.gameOver = { result: 'defeat', winner: null, at: state.time };
-      SWW.state.pushLog(state, 'world', 'Your nation has been overrun. The war is lost.');
+      IA.state.pushLog(state, 'world', 'Your nation has been overrun. The war is lost.');
       return;
     }
     var leader = null;
@@ -76,7 +76,7 @@
         result: leader.isPlayer ? 'victory' : 'defeat',
         winner: leader.id, at: state.time, reason: 'victory points'
       };
-      SWW.state.pushLog(state, 'world', leader.name + ' has reached the victory threshold and wins the war.');
+      IA.state.pushLog(state, 'world', leader.name + ' has reached the victory threshold and wins the war.');
       return;
     }
     if (alive.length === 1) {
@@ -84,9 +84,9 @@
         result: alive[0].isPlayer ? 'victory' : 'defeat',
         winner: alive[0].id, at: state.time, reason: 'last nation standing'
       };
-      SWW.state.pushLog(state, 'world', alive[0].name + ' stands alone. The war is over.');
+      IA.state.pushLog(state, 'world', alive[0].name + ' stands alone. The war is over.');
     }
   }
 
-  SWW.loop = { advance: advance, checkVictory: checkVictory, DAILY_GOLD: DAILY_GOLD };
+  IA.loop = { advance: advance, checkVictory: checkVictory, DAILY_GOLD: DAILY_GOLD };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

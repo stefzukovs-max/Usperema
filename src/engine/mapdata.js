@@ -8,7 +8,7 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
+  var IA = global.IA = global.IA || {};
   var ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+-';
 
   var CODE = {};
@@ -31,7 +31,7 @@
 
   function load() {
     if (cached) return cached;
-    var raw = SWW.WorldMap;
+    var raw = IA.WorldMap;
     if (!raw) throw new Error('worldmap.js has not been loaded');
     var sub = raw.sub;
 
@@ -109,14 +109,14 @@
 
   /** Latitude of a map-unit y coordinate; used for climate and terrain. */
   function latAt(y) {
-    var raw = SWW.WorldMap;
+    var raw = IA.WorldMap;
     var yTop = millerY(raw.latMax), yBot = millerY(raw.latMin);
     var m = yTop - (y / raw.mapH) * (yTop - yBot);
     return (Math.atan(Math.exp(m / 1.25)) - Math.PI / 4) / 0.4 * 180 / Math.PI;
   }
 
   function lonAt(x) {
-    return (x / SWW.WorldMap.mapW) * 360 - 180;
+    return (x / IA.WorldMap.mapW) * 360 - 180;
   }
 
   function millerY(lat) {
@@ -140,5 +140,5 @@
     return out;
   }
 
-  SWW.mapdata = { load: load, latAt: latAt, lonAt: lonAt, loopPoints: loopPoints, decodeInts: decodeInts };
+  IA.mapdata = { load: load, latAt: latAt, lonAt: lonAt, loopPoints: loopPoints, decodeInts: decodeInts };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

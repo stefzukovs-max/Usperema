@@ -8,10 +8,10 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var UnitData = SWW.UnitData;
-  var TERRAIN = SWW.worldgen.TERRAIN;
-  var clamp = SWW.util.clamp;
+  var IA = global.IA = global.IA || {};
+  var UnitData = IA.UnitData;
+  var TERRAIN = IA.worldgen.TERRAIN;
+  var clamp = IA.util.clamp;
 
   var DEF_K = 12;              // defence value that halves incoming damage
   var DAMAGE_SCALE = 0.45;     // global pacing knob for how fast stacks melt
@@ -30,8 +30,7 @@
       var us = unitsAlive(armies[i]);
       for (var j = 0; j < us.length; j++) {
         var t = UnitData.BY_ID[us[j].typeId];
-        var cat = t.cat === 'missile' ? 'inf' : t.cat;
-        comp[cat] += us[j].hp;
+        comp[t.cat] += us[j].hp;
         total += us[j].hp;
       }
     }
@@ -48,15 +47,16 @@
   }
 
   function techAtkBonus(nation, type) {
-    var e = SWW.economy;
+    var e = IA.economy;
     var b = 0;
-    if (type.cat === 'inf' && type.id !== 'artillery') b += e.techBonus(nation, 'infAtk');
-    if (type.id === 'artillery') b += e.techBonus(nation, 'artAtk');
+    var ranged = type.range > 0;
+    if (type.cat === 'inf' && !ranged) b += e.techBonus(nation, 'infAtk');
+    if (ranged) b += e.techBonus(nation, 'artAtk');
     return b;
   }
 
   function techDefBonus(nation, type) {
-    var e = SWW.economy;
+    var e = IA.economy;
     var b = 0;
     if (type.cat === 'inf') b += e.techBonus(nation, 'infDef');
     if (type.cat === 'arm') b += e.techBonus(nation, 'armDef');
@@ -71,13 +71,13 @@
       var us = unitsAlive(armies[i]);
       for (var j = 0; j < us.length; j++) {
         var t = UnitData.BY_ID[us[j].typeId];
-        need += (t.ammo || 0) * (us[j].hp / t.hp) * hours;
+        need += (t.shells || 0) * (us[j].hp / t.hp) * hours;
       }
     }
     if (need <= 0) return 1;
-    var have = nation.resources.ammo || 0;
-    if (have >= need) { nation.resources.ammo = have - need; return 1; }
-    nation.resources.ammo = 0;
+    var have = nation.resources.shells || 0;
+    if (have >= need) { nation.resources.shells = have - need; return 1; }
+    nation.resources.shells = 0;
     return clamp(0.35 + 0.65 * (have / need), 0.35, 1);
   }
 
@@ -97,7 +97,7 @@
     for (var a = 0; a < side.armies.length; a++) {
       var army = side.armies[a];
       var us = unitsAlive(army);
-      var moraleMul = 0.6 + 0.4 * clamp(SWW.state.armyStrength(army).ratio, 0, 1);
+      var moraleMul = 0.6 + 0.4 * clamp(IA.state.armyStrength(army).ratio, 0, 1);
       for (var u = 0; u < us.length; u++) {
         var g = us[u];
         var t = UnitData.BY_ID[g.typeId];
@@ -113,7 +113,7 @@
     var terrain = prov.isSea ? null : TERRAIN[prov.terrain];
     var attackMul = 1;
     if (opts.assaultingCity && !prov.isSea) {
-      attackMul *= 1 + SWW.economy.techBonus(nation, 'cityAtk');
+      attackMul *= 1 + IA.economy.techBonus(nation, 'cityAtk');
     }
     raw *= DAMAGE_SCALE * hours * attackMul * rng.range(0.85, 1.15);
     raw *= ammoFactor(state, nation, side.armies, hours);
@@ -123,7 +123,7 @@
     // softened by each group's defence against the attacker's dominant class.
     var foeNation = state.nationById[foe.ownerId];
     var terrainDef = terrain ? terrain.def : 1.0;
-    var bunker = prov.isSea ? 0 : SWW.economy.buildingEffect(prov, 'bunker', 'defence');
+    var bunker = prov.isSea ? 0 : IA.economy.buildingEffect(prov, 'fort', 'defence');
     var dealt = 0;
     for (var f = 0; f < foe.armies.length; f++) {
       var farmy = foe.armies[f];
@@ -162,7 +162,7 @@
       army.units = kept;
       if (kept.length === 0) { state.armies.splice(i, 1); removed = true; }
     }
-    if (removed) SWW.state.touchArmies(state);
+    if (removed) IA.state.touchArmies(state);
   }
 
   function groupByOwner(armies) {
@@ -177,7 +177,7 @@
 
   function sideStrength(side) {
     var s = 0;
-    for (var i = 0; i < side.armies.length; i++) s += SWW.state.armyStrength(side.armies[i]).hp;
+    for (var i = 0; i < side.armies.length; i++) s += IA.state.armyStrength(side.armies[i]).hp;
     return s;
   }
 
@@ -194,12 +194,12 @@
         army.order = null;
         continue;
       }
-      var present = SWW.state.allArmiesAt(state, target.id).filter(function (o) {
-        return SWW.state.isHostile(state, army.ownerId, o.ownerId);
+      var present = IA.state.allArmiesAt(state, target.id).filter(function (o) {
+        return IA.state.isHostile(state, army.ownerId, o.ownerId);
       });
       if (!present.length) {
         // Nothing to shoot at; shelling an enemy-held province hurts its morale.
-        if (target.nationId && SWW.state.isHostile(state, army.ownerId, target.nationId)) {
+        if (target.nationId && IA.state.isHostile(state, army.ownerId, target.nationId)) {
           target.unrest = Math.min(45, (target.unrest || 0) + 0.6 * hours);
         }
         continue;
@@ -217,7 +217,7 @@
     for (var i = 0; i < army.units.length; i++) {
       var t = UnitData.BY_ID[army.units[i].typeId];
       var r = t.range || 0;
-      if (t.id === 'artillery' && nation) r += SWW.economy.techBonus(nation, 'artRange');
+      if (t.range > 0 && nation) r += IA.economy.techBonus(nation, 'artRange');
       if (r > best) best = r;
     }
     return best;
@@ -259,7 +259,7 @@
       for (var s = 0; s < sides.length; s++) {
         for (var t = 0; t < sides.length; t++) {
           if (s === t) continue;
-          if (SWW.state.isHostile(state, sides[s].ownerId, sides[t].ownerId)) { engaged.push(sides[s]); break; }
+          if (IA.state.isHostile(state, sides[s].ownerId, sides[t].ownerId)) { engaged.push(sides[s]); break; }
         }
       }
       if (engaged.length < 2) continue;
@@ -274,7 +274,7 @@
         var me = engaged[x], target = null, best = -1;
         for (var y = 0; y < engaged.length; y++) {
           if (x === y) continue;
-          if (!SWW.state.isHostile(state, me.ownerId, engaged[y].ownerId)) continue;
+          if (!IA.state.isHostile(state, me.ownerId, engaged[y].ownerId)) continue;
           var st = snapshot[y].strength;
           if (st > best) { best = st; target = engaged[y]; }
         }
@@ -292,25 +292,25 @@
     for (var i = 0; i < state.armies.length; i++) {
       var army = state.armies[i];
       if (!army.inCombat || army.path.length) continue;
-      var st = SWW.state.armyStrength(army);
+      var st = IA.state.armyStrength(army);
       if (st.ratio > RETREAT_RATIO) continue;
       var prov = state.provinces[army.provinceId];
       var best = null;
       for (var n = 0; n < prov.neighbors.length; n++) {
         var np = state.provinces[prov.neighbors[n]];
-        if (!SWW.orders.canEnter(state, army, np)) continue;
-        var hostile = SWW.state.allArmiesAt(state, np.id).some(function (o) {
-          return SWW.state.isHostile(state, army.ownerId, o.ownerId);
+        if (!IA.orders.canEnter(state, army, np)) continue;
+        var hostile = IA.state.allArmiesAt(state, np.id).some(function (o) {
+          return IA.state.isHostile(state, army.ownerId, o.ownerId);
         });
         if (hostile) continue;
         var score = (np.nationId === army.ownerId ? 3 : np.nationId ? 0 : 1);
         if (!best || score > best.score) best = { prov: np, score: score };
       }
       if (best) {
-        SWW.orders.issueMove(state, army, best.prov.id, { retreat: true });
+        IA.orders.issueMove(state, army, best.prov.id, { retreat: true });
         var nation = state.nationById[army.ownerId];
         if (nation && nation.isPlayer) {
-          SWW.state.pushLog(state, 'combat', army.name + ' has been forced to withdraw to ' + best.prov.name + '.',
+          IA.state.pushLog(state, 'combat', army.name + ' has been forced to withdraw to ' + best.prov.name + '.',
             { provinceId: best.prov.id, armyId: army.id });
         }
       }
@@ -344,14 +344,14 @@
       var claimants = ownerIds.filter(function (id) {
         if (id === prov.nationId) return false;
         if (!prov.nationId) return true;                        // neutral ground
-        return SWW.state.atWar(state, id, prov.nationId);
+        return IA.state.atWar(state, id, prov.nationId);
       }).filter(function (id) {
         // Land claims need boots on the ground.
         for (var k = 0; k < here.length; k++) {
           if (here[k].ownerId !== id) continue;
           for (var u = 0; u < here[k].units.length; u++) {
             var ty = UnitData.BY_ID[here[k].units[u].typeId];
-            if (ty.domain === 'land' && ty.cat !== 'missile') return true;
+            if (ty.domain === 'land') return true;
           }
         }
         return false;
@@ -398,7 +398,7 @@
     var oldName = oldOwnerId && state.nationById[oldOwnerId] ? state.nationById[oldOwnerId].name : 'neutral forces';
     var newName = nn ? nn.name : 'unknown';
     var relevant = (state.playerId === newOwnerId || state.playerId === oldOwnerId);
-    SWW.state.pushLog(state, relevant ? 'capture' : 'world',
+    IA.state.pushLog(state, relevant ? 'capture' : 'world',
       newName + ' has taken ' + prov.name + (oldOwnerId ? ' from ' + oldName : ' (unclaimed)') + '.',
       { provinceId: prov.id });
 
@@ -415,14 +415,14 @@
     for (var i = state.armies.length - 1; i >= 0; i--) {
       if (state.armies[i].ownerId === nationId) state.armies.splice(i, 1);
     }
-    SWW.state.touchArmies(state);
+    IA.state.touchArmies(state);
     for (var j = 0; j < state.nations.length; j++) {
       delete state.nations[j].treaties[nationId];
     }
-    SWW.state.pushLog(state, 'world', nation.name + ' has been eliminated.', { nationId: nationId });
+    IA.state.pushLog(state, 'world', nation.name + ' has been eliminated.', { nationId: nationId });
   }
 
-  /** Aircraft loitering far from an airbase run out of fuel and fall apart. */
+  /** Aircraft loitering far from an airbase run out of oil and fall apart. */
   function tickAirAttrition(state, hours) {
     for (var i = 0; i < state.armies.length; i++) {
       var army = state.armies[i];
@@ -434,10 +434,10 @@
       if (!hasAir) continue;
       var prov = state.provinces[army.provinceId];
       var based = !prov.isSea && prov.nationId === army.ownerId &&
-        SWW.economy.buildingLevel(prov, 'airbase') > 0;
+        IA.economy.buildingLevel(prov, 'airfield') > 0;
       var carrier = false;
       if (prov.isSea) {
-        var sea = SWW.state.allArmiesAt(state, prov.id);
+        var sea = IA.state.allArmiesAt(state, prov.id);
         for (var s = 0; s < sea.length; s++) {
           if (sea[s].ownerId !== army.ownerId) continue;
           for (var v = 0; v < sea[s].units.length; v++) {
@@ -458,41 +458,6 @@
     }
   }
 
-  /** Launch a ballistic missile at a province and consume it. */
-  function launchMissile(state, rng, army, targetProvinceId) {
-    var group = null;
-    for (var i = 0; i < army.units.length; i++) {
-      if (army.units[i].typeId === 'ballistic_missile') { group = army.units[i]; break; }
-    }
-    if (!group) return { ok: false, why: 'No missile in this stack' };
-    var type = UnitData.BY_ID.ballistic_missile;
-    var dist = provinceDistance(state, army.provinceId, targetProvinceId, type.range);
-    if (dist > type.range) return { ok: false, why: 'Target out of range' };
-
-    var target = state.provinces[targetProvinceId];
-    var present = SWW.state.allArmiesAt(state, targetProvinceId).filter(function (o) {
-      return SWW.state.isHostile(state, army.ownerId, o.ownerId);
-    });
-    if (present.length) {
-      var side = { ownerId: army.ownerId, armies: [{ ownerId: army.ownerId, units: [{ typeId: 'ballistic_missile', count: 1, hp: type.hp }], entrench: 0, name: 'strike' }] };
-      var foe = groupByOwner(present)[0];
-      fire(state, rng, side, foe, target, 1, { damageMul: 1, rangedOnly: false });
-    }
-    if (!target.isSea) {
-      target.morale = Math.max(5, target.morale - 18);
-      target.unrest = Math.min(60, (target.unrest || 0) + 20);
-      target.pop = Math.max(4, Math.round(target.pop * 0.93));
-    }
-    group.count -= 1;
-    group.hp -= type.hp;
-    reconcile(state);
-    SWW.state.pushLog(state, 'combat',
-      state.nationById[army.ownerId].name + ' launched a ballistic missile at ' + target.name + '.',
-      { provinceId: targetProvinceId });
-    state.lastStrike = { provinceId: targetProvinceId, at: state.time };
-    return { ok: true };
-  }
-
   function tick(state, rng, hours) {
     for (var i = 0; i < state.armies.length; i++) state.armies[i].inCombat = false;
     tickBombardment(state, rng, hours);
@@ -504,9 +469,9 @@
     reconcile(state);
   }
 
-  SWW.combat = {
+  IA.combat = {
     tick: tick, transferProvince: transferProvince, checkElimination: checkElimination,
-    provinceDistance: provinceDistance, maxRange: maxRange, launchMissile: launchMissile,
+    provinceDistance: provinceDistance, maxRange: maxRange,
     captureHours: captureHours, reconcile: reconcile, composition: composition,
     dominantCat: dominantCat
   };

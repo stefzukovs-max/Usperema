@@ -6,11 +6,11 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var UnitData = SWW.UnitData;
-  var BuildingData = SWW.BuildingData;
-  var ResearchData = SWW.ResearchData;
-  var clamp = SWW.util.clamp;
+  var IA = global.IA = global.IA || {};
+  var UnitData = IA.UnitData;
+  var BuildingData = IA.BuildingData;
+  var ResearchData = IA.ResearchData;
+  var clamp = IA.util.clamp;
 
   /*
    * Yields per hour, per point of province population.  Calibrated so a mid
@@ -49,7 +49,7 @@
 
   /** Per-hour gross output of a single province. */
   function provinceOutput(state, prov) {
-    var out = { manpower: 0, food: 0, materials: 0, fuel: 0, ammo: 0, chemicals: 0, cash: 0 };
+    var out = { manpower: 0, grain: 0, iron: 0, oil: 0, shells: 0, coal: 0, money: 0 };
     if (prov.isSea || !prov.nationId || prov.size === 0) return out;
     var nation = state.nationById[prov.nationId];
     if (!nation) return out;
@@ -57,52 +57,54 @@
     var mf = moraleFactor(prov);
     var pop = prov.pop;
     var prodTech = 1 + techBonus(nation, 'production');
-    var industry = 1 + buildingEffect(prov, 'industry', 'deposit');
+    var industry = 1 + buildingEffect(prov, 'factory', 'deposit') +
+      buildingEffect(prov, 'railway', 'deposit');
 
-    // Every province farms; a food deposit means it farms well.
-    out.food += pop * FARM_RATE * mf * prodTech;
+    // Every province farms; a grain deposit means it farms well.
+    out.grain += pop * FARM_RATE * mf * prodTech;
     if (prov.deposit) {
       out[prov.deposit] += pop * DEPOSIT_RATE * mf * industry * prodTech;
     }
-    out.cash += pop * CASH_RATE * mf * (1 + buildingEffect(prov, 'industry', 'cash')) *
+    out.money += pop * CASH_RATE * mf * (1 + buildingEffect(prov, 'factory', 'money') +
+      buildingEffect(prov, 'railway', 'money') + buildingEffect(prov, 'admin', 'money')) *
       (prov.coastal ? 1.15 : 1);
     out.manpower += pop * MANPOWER_RATE * mf *
-      (1 + buildingEffect(prov, 'recruiting', 'manpower')) * (1 + techBonus(nation, 'manpower'));
+      (1 + buildingEffect(prov, 'barracks', 'manpower')) * (1 + techBonus(nation, 'manpower'));
 
-    var arms = buildingEffect(prov, 'arms_factory', 'ammo');
-    if (arms > 0) out.ammo += arms * mf;
+    var arms = buildingEffect(prov, 'workshop', 'shells') + buildingEffect(prov, 'factory', 'shells');
+    if (arms > 0) out.shells += arms * mf * (1 + techBonus(nation, 'shellYield'));
     return out;
   }
 
-  /** Materials and chemicals burned by arms factories producing ammunition. */
+  /** Materials and coal burned by arms factories producing ammunition. */
   function provinceConsumption(state, prov) {
-    var cons = { materials: 0, chemicals: 0 };
-    var arms = buildingEffect(prov, 'arms_factory', 'ammo');
+    var cons = { iron: 0, coal: 0 };
+    var arms = buildingEffect(prov, 'workshop', 'shells') + buildingEffect(prov, 'factory', 'shells');
     if (arms > 0) {
       var mf = moraleFactor(prov);
-      cons.materials = arms * mf * 0.5;
-      cons.chemicals = arms * mf * 0.15;
+      cons.iron = arms * mf * 0.55;
+      cons.coal = arms * mf * 0.40;
     }
     return cons;
   }
 
   function nationIncome(state, nation) {
-    var totals = { manpower: 0, food: 0, materials: 0, fuel: 0, ammo: 0, chemicals: 0, cash: 0 };
+    var totals = { manpower: 0, grain: 0, iron: 0, oil: 0, shells: 0, coal: 0, money: 0 };
     for (var i = 0; i < nation.provinces.length; i++) {
       var prov = state.provinces[nation.provinces[i]];
       if (!prov || prov.nationId !== nation.id) continue;
       var o = provinceOutput(state, prov);
       for (var k in totals) totals[k] += o[k] || 0;
       var c = provinceConsumption(state, prov);
-      totals.materials -= c.materials;
-      totals.chemicals -= c.chemicals;
+      totals.iron -= c.iron;
+      totals.coal -= c.coal;
     }
     return totals;
   }
 
   function nationUpkeep(state, nation) {
-    var totals = { food: 0, fuel: 0, cash: 0 };
-    var armies = SWW.state.armiesOf(state, nation.id);
+    var totals = { grain: 0, oil: 0, money: 0 };
+    var armies = IA.state.armiesOf(state, nation.id);
     for (var i = 0; i < armies.length; i++) {
       var army = armies[i];
       for (var j = 0; j < army.units.length; j++) {
@@ -163,12 +165,13 @@
     var t = 100;
     t -= (prov.supplyDist || 0) * 3.2;
     if (nation.warCount > 0) t -= 6 + Math.min(14, nation.warCount * 3);
-    t += buildingEffect(prov, 'bunker', 'morale');
-    t += buildingEffect(prov, 'propaganda', 'morale');
-    t += buildingEffect(prov, 'industry', 'morale');
+    t += buildingEffect(prov, 'fort', 'morale');
+    t += buildingEffect(prov, 'admin', 'morale');
+    t += buildingEffect(prov, 'factory', 'morale');
     if (prov.isCapital) t += 12;
     if (prov.unrest) t -= prov.unrest;
     if (nation.shortage) t -= 12;
+    t += techBonus(nation, 'morale');
     // Being surrounded by hostile territory is demoralising.
     var hostile = 0, total = 0;
     for (var i = 0; i < prov.neighbors.length; i++) {
@@ -176,7 +179,7 @@
       if (np.isSea) continue;
       total++;
       if (np.nationId && np.nationId !== prov.nationId &&
-        SWW.state.atWar(state, prov.nationId, np.nationId)) hostile++;
+        IA.state.atWar(state, prov.nationId, np.nationId)) hostile++;
     }
     if (total > 0) t -= (hostile / total) * 15;
     return clamp(t, 5, 100);
@@ -189,7 +192,7 @@
       var target = moraleTarget(state, prov);
       prov.moraleTarget = target;
       var rate = (target > prov.morale ? 0.22 : 0.32) * hours;   // decays faster than it recovers
-      var spread = buildingEffect(prov, 'propaganda', 'moraleSpread');
+      var spread = buildingEffect(prov, 'admin', 'moraleSpread');
       if (spread) rate *= 1 + spread * 0.2;
       if (Math.abs(target - prov.morale) < rate) prov.morale = target;
       else prov.morale += (target > prov.morale ? rate : -rate);
@@ -228,9 +231,9 @@
         var next = nation.resources[k] + flow.net[k] * hours;
         if (next < 0) {
           next = 0;
-          // Only food and money actually break an army; running out of
-          // chemicals just stalls production.
-          if (flow.net[k] < 0 && (k === 'food' || k === 'cash')) shortage = true;
+          // Only grain and money actually break an army; running out of
+          // coal just stalls production.
+          if (flow.net[k] < 0 && (k === 'grain' || k === 'money')) shortage = true;
         }
         nation.resources[k] = next;
       }
@@ -241,7 +244,7 @@
 
   /** Starving or bankrupt armies lose strength. */
   function applyShortageAttrition(state, nation, hours) {
-    var armies = SWW.state.armiesOf(state, nation.id);
+    var armies = IA.state.armiesOf(state, nation.id);
     for (var i = 0; i < armies.length; i++) {
       var army = armies[i];
       for (var j = 0; j < army.units.length; j++) {
@@ -264,7 +267,7 @@
       if (!friendly) continue;
       var rate = 0.9 * (1 + techBonus(nation, 'repair')) * hours;
       if (!prov.isSea) {
-        rate *= 1 + buildingEffect(prov, 'airbase', 'airRepair') + buildingEffect(prov, 'naval_base', 'navalRepair');
+        rate *= 1 + buildingEffect(prov, 'airfield', 'airRepair') + buildingEffect(prov, 'harbour', 'navalRepair');
       }
       for (var j = 0; j < army.units.length; j++) {
         var g = army.units[j];
@@ -295,7 +298,7 @@
         prov.construction = null;
         var nation = state.nationById[prov.nationId];
         if (nation && nation.isPlayer) {
-          SWW.state.pushLog(state, 'build',
+          IA.state.pushLog(state, 'build',
             BuildingData.BY_ID[b.buildingId].name + ' level ' + b.level + ' completed in ' + prov.name + '.',
             { provinceId: prov.id });
         }
@@ -318,7 +321,7 @@
       var type = UnitData.BY_ID[job.typeId];
       // Join a stack already sitting here — preferring one that already fields
       // this unit type — rather than littering the province with singletons.
-      var here = SWW.state.armiesIn(state, prov.id);
+      var here = IA.state.armiesIn(state, prov.id);
       var host = null, hostGroup = null;
       for (var a = 0; a < here.length && !hostGroup; a++) {
         var cand = here[a];
@@ -334,11 +337,11 @@
       } else if (host) {
         host.units.push({ typeId: job.typeId, count: 1, hp: type.hp });
       } else {
-        SWW.state.spawnArmy(state, prov.nationId, prov.id, [{ typeId: job.typeId, count: 1 }]);
+        IA.state.spawnArmy(state, prov.nationId, prov.id, [{ typeId: job.typeId, count: 1 }]);
       }
       var nation = state.nationById[prov.nationId];
       if (nation && nation.isPlayer) {
-        SWW.state.pushLog(state, 'build', type.name + ' ready in ' + prov.name + '.', { provinceId: prov.id });
+        IA.state.pushLog(state, 'build', type.name + ' ready in ' + prov.name + '.', { provinceId: prov.id });
       }
     }
   }
@@ -353,7 +356,7 @@
         nation.research[techId] = true;
         nation.researching = null;
         if (nation.isPlayer) {
-          SWW.state.pushLog(state, 'research',
+          IA.state.pushLog(state, 'research',
             'Research complete: ' + ResearchData.BY_ID[techId].name + '.', { techId: techId });
         }
       }
@@ -384,7 +387,7 @@
     return { ok: true };
   }
 
-  SWW.economy = {
+  IA.economy = {
     techBonus: techBonus, hasTech: hasTech, buildingLevel: buildingLevel,
     buildingEffect: buildingEffect, moraleFactor: moraleFactor,
     provinceOutput: provinceOutput, provinceConsumption: provinceConsumption,

@@ -1,21 +1,21 @@
 /*
  * User interface: HUD, map input, the selection panel and every modal screen.
- * All game mutations go through SWW.orders / SWW.diplomacy / SWW.market so the
+ * All game mutations go through IA.orders / IA.diplomacy / IA.market so the
  * player is bound by exactly the same rules as the AI.
  */
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
+  var IA = global.IA = global.IA || {};
   var doc = global.document;
-  var UnitData = SWW.UnitData;
-  var BuildingData = SWW.BuildingData;
-  var ResearchData = SWW.ResearchData;
-  var util = SWW.util;
+  var UnitData = IA.UnitData;
+  var BuildingData = IA.BuildingData;
+  var ResearchData = IA.ResearchData;
+  var util = IA.util;
   var fmt = util.fmt;
   var clamp = util.clamp;
 
-  var RES_ORDER = ['food', 'materials', 'fuel', 'ammo', 'chemicals', 'manpower', 'cash'];
+  var RES_ORDER = ['grain', 'timber', 'coal', 'iron', 'oil', 'shells', 'manpower', 'money'];
 
   function el(tag, attrs, kids) {
     var node = doc.createElement(tag);
@@ -46,7 +46,7 @@
     renderer: null,
     selectedProvinceId: null,
     selectedArmyId: null,
-    targeting: null,          // 'move' | 'attack' | 'bombard' | 'missile'
+    targeting: null,          // 'move' | 'attack' | 'bombard'
     visible: {},
     lastVisibility: -99,
     lastHud: -99,
@@ -58,7 +58,7 @@
   UI.init = function (state) {
     this.state = state;
     this.canvas = doc.getElementById('map');
-    this.renderer = new SWW.Renderer(this.canvas, state);
+    this.renderer = new IA.Renderer(this.canvas, state);
     this.renderer.resize();
     this.renderer.centerOn(state.nationById[state.playerId].capitalProvince, 8);
     this.bindInput();
@@ -90,7 +90,7 @@
 
     var speeds = doc.getElementById('speedControls');
     clear(speeds);
-    SWW.state.SPEEDS.forEach(function (sp) {
+    IA.state.SPEEDS.forEach(function (sp) {
       speeds.appendChild(el('button', {
         class: 'speed-btn' + (self.state.speed === sp.id ? ' active' : ''),
         'data-speed': sp.id,
@@ -273,7 +273,7 @@
   };
 
   UI.selectArmy = function (id) {
-    var army = SWW.state.armyById(this.state, id);
+    var army = IA.state.armyById(this.state, id);
     if (!army) return;
     this.selectedArmyId = id;
     this.selectedProvinceId = army.provinceId;
@@ -294,23 +294,18 @@
     var labels = {
       move: 'Select a destination province',
       attack: 'Select a province to attack',
-      bombard: 'Select a province to bombard',
-      missile: 'Select a missile target'
+      bombard: 'Select a province to bombard'
     };
     doc.getElementById('targetingText').textContent = labels[mode] || 'Select a target';
     bar.classList.add('show');
   };
 
   UI.resolveTargeting = function (prov) {
-    var army = SWW.state.armyById(this.state, this.selectedArmyId);
+    var army = IA.state.armyById(this.state, this.selectedArmyId);
     if (!army) { this.setTargeting(null); return; }
     var res;
-    if (this.targeting === 'bombard') res = SWW.orders.issueBombard(this.state, army, prov.id);
-    else if (this.targeting === 'missile') {
-      var rng = new SWW.RNG(this.state.rngState);
-      res = SWW.combat.launchMissile(this.state, rng, army, prov.id);
-      this.state.rngState = rng.s;
-    } else res = SWW.orders.issueMove(this.state, army, prov.id);
+    if (this.targeting === 'bombard') res = IA.orders.issueBombard(this.state, army, prov.id);
+    else res = IA.orders.issueMove(this.state, army, prov.id);
 
     if (!res.ok) this.toast(res.why, 'warn');
     else if (res.hours) this.toast('Moving to ' + prov.name + ' — ' + util.fmtDuration(res.hours) + '.');
@@ -361,7 +356,7 @@
     if (!nation.researching) {
       for (var i = 0; i < ResearchData.TECHS.length; i++) {
         var tech = ResearchData.TECHS[i];
-        if (SWW.orders.techAvailable(nation, tech) && SWW.economy.canAfford(nation, tech.cost)) avail++;
+        if (IA.orders.techAvailable(nation, tech) && IA.economy.canAfford(nation, tech.cost)) avail++;
       }
     }
     this.setBadge('research', avail);
@@ -386,7 +381,7 @@
     this.lastVisibility = state.time;
     var vis = {};
     var nation = state.nationById[state.playerId];
-    var reach = 1 + SWW.economy.techBonus(nation, 'vision');
+    var reach = 1 + IA.economy.techBonus(nation, 'vision');
     var seeds = [];
     var i, j;
     for (i = 0; i < nation.provinces.length; i++) { vis[nation.provinces[i]] = true; seeds.push(nation.provinces[i]); }
@@ -411,7 +406,7 @@
     for (i = 0; i < state.nations.length; i++) {
       var other = state.nations[i];
       if (other.id === nation.id || !other.alive) continue;
-      if (SWW.state.treaty(state, nation.id, other.id) !== 'alliance') continue;
+      if (IA.state.treaty(state, nation.id, other.id) !== 'alliance') continue;
       for (j = 0; j < other.provinces.length; j++) vis[other.provinces[j]] = true;
     }
     this.visible = vis;
@@ -427,7 +422,7 @@
     clear(body);
 
     if (this.selectedArmyId) {
-      var army = SWW.state.armyById(this.state, this.selectedArmyId);
+      var army = IA.state.armyById(this.state, this.selectedArmyId);
       if (!army) { this.selectedArmyId = null; this.renderPanel(); return; }
       title.textContent = army.name;
       var owner = this.state.nationById[army.ownerId];
@@ -442,7 +437,7 @@
     title.textContent = prov.name;
     var ownerName = prov.isSea ? 'Open water'
       : prov.nationId ? this.state.nationById[prov.nationId].name : 'Unclaimed territory';
-    sub.textContent = ownerName + (prov.isSea ? '' : ' — ' + SWW.worldgen.TERRAIN[prov.terrain].name);
+    sub.textContent = ownerName + (prov.isSea ? '' : ' — ' + IA.worldgen.TERRAIN[prov.terrain].name);
     body.appendChild(this.buildProvincePanel(prov));
     panel.classList.add('open');
   };
@@ -460,7 +455,7 @@
         stat('Morale', Math.round(prov.morale) + '%'),
         stat('Deposit', meta.icon + ' ' + meta.name),
         stat('Victory points', String(prov.vp)),
-        stat('Terrain', SWW.worldgen.TERRAIN[prov.terrain].name)
+        stat('Terrain', IA.worldgen.TERRAIN[prov.terrain].name)
       ]));
       if (prov.capture) {
         var by = state.nationById[prov.capture.by];
@@ -470,20 +465,20 @@
       }
     }
 
-    var garrison = SWW.state.allArmiesAt(state, prov.id).filter(function (a) {
+    var garrison = IA.state.allArmiesAt(state, prov.id).filter(function (a) {
       return a.ownerId === state.playerId || self.visible[prov.id];
     });
     if (garrison.length) {
       var list = el('div', { class: 'stack-list' });
       garrison.forEach(function (army) {
         var n = state.nationById[army.ownerId];
-        var st = SWW.state.armyStrength(army);
+        var st = IA.state.armyStrength(army);
         list.appendChild(el('button', {
           class: 'stack-row', onclick: function () { self.selectArmy(army.id); }
         }, [
           el('span', { class: 'chip', style: 'background:' + n.color }),
           el('span', { class: 'stack-name', text: army.name }),
-          el('span', { class: 'stack-meta', text: SWW.state.unitCount(army) + ' bn · ' + Math.round(st.ratio * 100) + '%' })
+          el('span', { class: 'stack-meta', text: IA.state.unitCount(army) + ' bn · ' + Math.round(st.ratio * 100) + '%' })
         ]));
       });
       wrap.appendChild(section('Forces present', list));
@@ -499,9 +494,9 @@
       }
       if (owned.length) wrap.appendChild(section('Known installations', el('div', { class: 'muted', text: owned.join(', ') })));
       if (prov.nationId && prov.nationId !== state.playerId) {
-        var rel = SWW.state.treaty(state, state.playerId, prov.nationId);
+        var rel = IA.state.treaty(state, state.playerId, prov.nationId);
         wrap.appendChild(el('div', { class: 'notice' + (rel === 'war' ? ' warn' : '') },
-          'Relations: ' + SWW.diplomacy.TREATY_LABEL[rel]));
+          'Relations: ' + IA.diplomacy.TREATY_LABEL[rel]));
       }
     }
     return wrap;
@@ -523,14 +518,14 @@
           class: 'mini gold', text: '⚡ ' + Math.max(1, Math.ceil(c.remaining / 2)),
           title: 'Finish instantly with gold',
           onclick: function () {
-            var r = SWW.orders.rushWithGold(state, nation, 'construction', prov);
+            var r = IA.orders.rushWithGold(state, nation, 'construction', prov);
             self.toast(r.ok ? 'Construction rushed.' : r.why, r.ok ? 'ok' : 'warn');
             self.renderPanel();
           }
         }),
         el('button', {
           class: 'mini danger', text: '✕', title: 'Cancel (60% refund)',
-          onclick: function () { SWW.orders.cancelConstruction(state, prov); self.renderPanel(); }
+          onclick: function () { IA.orders.cancelConstruction(state, prov); self.renderPanel(); }
         })
       ]));
     }
@@ -541,7 +536,7 @@
       var maxed = level >= b.maxLevel;
       var blocked = b.coastalOnly && !prov.coastal;
       var cost = maxed ? null : BuildingData.costFor(b.id, next);
-      var afford = cost ? SWW.economy.canAfford(nation, cost) : false;
+      var afford = cost ? IA.economy.canAfford(nation, cost) : false;
       var row = el('div', { class: 'build-row' + (maxed ? ' done' : '') }, [
         el('span', { class: 'b-icon', text: b.icon }),
         el('div', { class: 'b-main' }, [
@@ -552,7 +547,7 @@
           : el('button', {
             class: 'build-btn' + (afford ? '' : ' disabled'),
             onclick: function () {
-              var r = SWW.orders.startConstruction(state, prov, b.id);
+              var r = IA.orders.startConstruction(state, prov, b.id);
               self.toast(r.ok ? b.name + ' L' + next + ' started.' : r.why, r.ok ? 'ok' : 'warn');
               self.renderPanel();
             }
@@ -581,22 +576,22 @@
         i === 0 ? el('button', {
           class: 'mini gold', text: '⚡ ' + Math.max(1, Math.ceil(job.remaining / 2)),
           onclick: function () {
-            var r = SWW.orders.rushWithGold(state, nation, 'unit', prov);
+            var r = IA.orders.rushWithGold(state, nation, 'unit', prov);
             self.toast(r.ok ? 'Production rushed.' : r.why, r.ok ? 'ok' : 'warn');
             self.renderPanel();
           }
         }) : null,
         el('button', {
           class: 'mini danger', text: '✕',
-          onclick: function () { SWW.orders.cancelQueued(state, prov, i); self.renderPanel(); }
+          onclick: function () { IA.orders.cancelQueued(state, prov, i); self.renderPanel(); }
         })
       ]));
     });
 
     UnitData.UNITS.forEach(function (type) {
-      if (type.req.tech && !SWW.economy.hasTech(nation, type.req.tech)) return;
-      var check = SWW.economy.canBuildUnitHere(state, prov, type);
-      var afford = SWW.economy.canAfford(nation, type.cost);
+      if (type.req.tech && !IA.economy.hasTech(nation, type.req.tech)) return;
+      var check = IA.economy.canBuildUnitHere(state, prov, type);
+      var afford = IA.economy.canAfford(nation, type.cost);
       host.appendChild(el('div', { class: 'build-row' }, [
         el('span', { class: 'b-icon', text: type.icon }),
         el('div', { class: 'b-main' }, [
@@ -606,14 +601,14 @@
         el('button', {
           class: 'build-btn' + (check.ok && afford ? '' : ' disabled'),
           onclick: function () {
-            var r = SWW.orders.queueUnit(state, prov, type.id);
+            var r = IA.orders.queueUnit(state, prov, type.id);
             self.toast(r.ok ? type.name + ' queued.' : r.why, r.ok ? 'ok' : 'warn');
             self.renderPanel();
           }
         }, [
           el('span', { text: 'Build' }),
           el('span', { class: 'cost', text: costText(type.cost) }),
-          el('span', { class: 'cost dim', text: util.fmtDuration(SWW.economy.unitBuildTime(state, nation, type)) })
+          el('span', { class: 'cost dim', text: util.fmtDuration(IA.economy.unitBuildTime(state, nation, type)) })
         ])
       ]));
     });
@@ -624,12 +619,12 @@
     var self = this, state = this.state;
     var mine = army.ownerId === state.playerId;
     var wrap = el('div', { class: 'panel-sections' });
-    var st = SWW.state.armyStrength(army);
+    var st = IA.state.armyStrength(army);
     var prov = state.provinces[army.provinceId];
 
     var statusText = army.path.length
       ? 'Moving to ' + state.provinces[army.path[army.path.length - 1]].name +
-        ' — ' + util.fmtDuration(army.legRemaining + SWW.orders.estimateTravel(state, army, army.path.slice(1)))
+        ' — ' + util.fmtDuration(army.legRemaining + IA.orders.estimateTravel(state, army, army.path.slice(1)))
       : army.order && army.order.type === 'bombard'
         ? 'Bombarding ' + state.provinces[army.order.target].name
         : army.inCombat ? 'In combat' : 'Holding position';
@@ -639,7 +634,7 @@
      * are, how hurt they are, and the four numbers that decide the next hour.
      */
     var owner = state.nationById[army.ownerId];
-    var speed = SWW.orders.armySpeed(state, army, prov);
+    var speed = IA.orders.armySpeed(state, army, prov);
     var attack = 0, defence = 0;
     for (var g = 0; g < army.units.length; g++) {
       var gt = UnitData.BY_ID[army.units[g].typeId];
@@ -647,7 +642,7 @@
       attack += (gt.atk.inf + gt.atk.arm) / 2 * live;
       defence += (gt.def.inf + gt.def.arm) / 2 * live;
     }
-    var terrain = prov.isSea ? null : SWW.worldgen.TERRAIN[prov.terrain];
+    var terrain = prov.isSea ? null : IA.worldgen.TERRAIN[prov.terrain];
     var ratio = clamp(st.ratio, 0, 1);
 
     wrap.appendChild(el('div', { class: 'readout' }, [
@@ -672,8 +667,7 @@
     ]));
 
     if (mine) {
-      var reach = SWW.combat.maxRange(state, army);
-      var hasMissile = army.units.some(function (g) { return g.typeId === 'ballistic_missile'; });
+      var reach = IA.combat.maxRange(state, army);
       var actions = el('div', { class: 'action-row' }, [
         el('button', { class: 'act move', onclick: function () { self.setTargeting('move'); } },
           [el('span', { text: '»' }), el('span', { text: 'Move' })]),
@@ -681,17 +675,15 @@
           [el('span', { text: '⌖' }), el('span', { text: 'Attack' })]),
         reach > 0 ? el('button', { class: 'act bombard', onclick: function () { self.setTargeting('bombard'); } },
           [el('span', { text: '✲' }), el('span', { text: 'Bombard' })]) : null,
-        hasMissile ? el('button', { class: 'act missile', onclick: function () { self.setTargeting('missile'); } },
-          [el('span', { text: '↑' }), el('span', { text: 'Launch' })]) : null,
         (army.path.length || army.order) ? el('button', {
           class: 'act stop',
-          onclick: function () { SWW.orders.stopArmy(state, army); self.renderPanel(); }
+          onclick: function () { IA.orders.stopArmy(state, army); self.renderPanel(); }
         }, [el('span', { text: '⦸' }), el('span', { text: 'Stop' })]) : null
       ]);
       wrap.appendChild(actions);
 
-      var others = SWW.state.armiesIn(state, army.provinceId).filter(function (o) {
-        return o.id !== army.id && SWW.orders.canMerge(state, army, o);
+      var others = IA.state.armiesIn(state, army.provinceId).filter(function (o) {
+        return o.id !== army.id && IA.orders.canMerge(state, army, o);
       });
       if (others.length) {
         var mergeRow = el('div', { class: 'inline-actions' });
@@ -699,7 +691,7 @@
           mergeRow.appendChild(el('button', {
             class: 'ghost', text: 'Merge ' + o.name,
             onclick: function () {
-              SWW.orders.mergeArmies(state, army, o);
+              IA.orders.mergeArmies(state, army, o);
               self.toast('Stacks merged.');
               self.renderPanel();
             }
@@ -726,7 +718,7 @@
         mine && army.units.length > 1 ? el('button', {
           class: 'mini', text: 'Split', title: 'Detach into a new stack',
           onclick: function () {
-            var r = SWW.orders.splitArmy(state, army, [{ typeId: g.typeId, count: 1 }]);
+            var r = IA.orders.splitArmy(state, army, [{ typeId: g.typeId, count: 1 }]);
             self.toast(r.ok ? 'Detached ' + type.name + '.' : r.why, r.ok ? 'ok' : 'warn');
             self.renderPanel();
           }
@@ -737,7 +729,7 @@
 
     if (!prov.isSea && prov.nationId && prov.nationId !== army.ownerId) {
       wrap.appendChild(el('div', { class: 'notice' }, 'Occupying enemy ground takes ' +
-        util.fmtDuration(SWW.combat.captureHours(prov)) + ' without opposition.'));
+        util.fmtDuration(IA.combat.captureHours(prov)) + ' without opposition.'));
     }
     return wrap;
   };
@@ -783,15 +775,15 @@
           el('span', { class: 'chip', style: 'background:' + from.color }),
           el('div', { class: 'offer-text' }, [
             el('strong', { text: from.name }),
-            el('span', { text: ' proposes ' + SWW.diplomacy.TREATY_LABEL[offer.type].toLowerCase() })
+            el('span', { text: ' proposes ' + IA.diplomacy.TREATY_LABEL[offer.type].toLowerCase() })
           ]),
           el('button', {
             class: 'ok-btn', text: 'Accept',
-            onclick: function () { SWW.diplomacy.respondToOffer(state, offer.id, true); self.refreshModal(); }
+            onclick: function () { IA.diplomacy.respondToOffer(state, offer.id, true); self.refreshModal(); }
           }),
           el('button', {
             class: 'ghost', text: 'Decline',
-            onclick: function () { SWW.diplomacy.respondToOffer(state, offer.id, false); self.refreshModal(); }
+            onclick: function () { IA.diplomacy.respondToOffer(state, offer.id, false); self.refreshModal(); }
           })
         ]));
       });
@@ -828,7 +820,7 @@
       if (q) return all.filter(function (n) { return n.name.toLowerCase().indexOf(q) >= 0; });
       var contacts = me.contactSet || {};
       return all.filter(function (n) {
-        var t = SWW.state.treaty(state, me.id, n.id);
+        var t = IA.state.treaty(state, me.id, n.id);
         if (mode === 'all') return true;
         if (mode === 'war') return t === 'war';
         if (mode === 'treaty') return t === 'nap' || t === 'alliance';
@@ -838,7 +830,7 @@
     }
 
     function render() {
-      SWW.clearNode(rows);
+      IA.clearNode(rows);
       var list = visibleNations();
       if (!list.length) {
         rows.appendChild(el('div', { class: 'muted small', text: 'Nobody here. Try another filter or search by name.' }));
@@ -848,15 +840,15 @@
     }
 
     function renderNation(n) {
-      var rel = SWW.diplomacy.relation(state, me.id, n.id);
-      var treaty = SWW.state.treaty(state, me.id, n.id);
-      var neighbour = SWW.diplomacy.areNeighbours(state, me.id, n.id);
+      var rel = IA.diplomacy.relation(state, me.id, n.id);
+      var treaty = IA.state.treaty(state, me.id, n.id);
+      var neighbour = IA.diplomacy.areNeighbours(state, me.id, n.id);
       var actions = el('div', { class: 'nation-actions' });
       if (treaty === 'war') {
         actions.appendChild(el('button', {
           class: 'ghost', text: 'Offer peace',
           onclick: function () {
-            var r = SWW.diplomacy.proposeTreaty(state, me.id, n.id, 'peace');
+            var r = IA.diplomacy.proposeTreaty(state, me.id, n.id, 'peace');
             self.toast(r.accepted ? n.name + ' accepts the ceasefire.' : n.name + ' fights on.',
               r.accepted ? 'ok' : 'warn');
             self.refreshModal();
@@ -867,7 +859,7 @@
           actions.appendChild(el('button', {
             class: 'ghost', text: 'Non-aggression',
             onclick: function () {
-              var r = SWW.diplomacy.proposeTreaty(state, me.id, n.id, 'nap');
+              var r = IA.diplomacy.proposeTreaty(state, me.id, n.id, 'nap');
               self.toast(r.accepted ? n.name + ' signs a non-aggression pact.' : n.name + ' declines.',
                 r.accepted ? 'ok' : 'warn');
               self.refreshModal();
@@ -878,7 +870,7 @@
           actions.appendChild(el('button', {
             class: 'ghost', text: 'Alliance',
             onclick: function () {
-              var r = SWW.diplomacy.proposeTreaty(state, me.id, n.id, 'alliance');
+              var r = IA.diplomacy.proposeTreaty(state, me.id, n.id, 'alliance');
               self.toast(r.accepted ? n.name + ' joins your alliance.' : n.name + ' declines.',
                 r.accepted ? 'ok' : 'warn');
               self.refreshModal();
@@ -888,7 +880,7 @@
         if (treaty === 'nap' || treaty === 'alliance') {
           actions.appendChild(el('button', {
             class: 'ghost', text: 'Withdraw',
-            onclick: function () { SWW.diplomacy.breakTreaty(state, me.id, n.id); self.refreshModal(); }
+            onclick: function () { IA.diplomacy.breakTreaty(state, me.id, n.id); self.refreshModal(); }
           }));
         }
         actions.appendChild(el('button', {
@@ -897,7 +889,7 @@
             self.confirm('Confirm action',
               'This will declare an unprovoked war against ' + n.name + '. Do you wish to proceed?',
               function () {
-                SWW.diplomacy.declareWar(state, me.id, n.id, 'a formal declaration');
+                IA.diplomacy.declareWar(state, me.id, n.id, 'a formal declaration');
                 self.refreshModal();
               }, { danger: true, okLabel: 'Declare war' });
           }
@@ -909,11 +901,11 @@
         el('div', { class: 'nation-main' }, [
           el('div', { class: 'nation-name' }, [
             el('span', { text: n.name }),
-            el('span', { class: 'tag ' + treaty, text: SWW.diplomacy.TREATY_LABEL[treaty] }),
+            el('span', { class: 'tag ' + treaty, text: IA.diplomacy.TREATY_LABEL[treaty] }),
             neighbour ? el('span', { class: 'tag dim', text: 'border' }) : null
           ]),
           el('div', { class: 'nation-meta', text: n.vp + ' VP · ' + n.provinces.length + ' prov · ' +
-            Math.round(SWW.state.nationPower(state, n.id)) + ' mil' }),
+            Math.round(IA.state.nationPower(state, n.id)) + ' mil' }),
           relationBar(rel)
         ]),
         actions
@@ -944,7 +936,7 @@
     wrap.appendChild(section('Trade size', picker));
 
     var list = el('div', { class: 'market-list' });
-    SWW.market.TRADED.forEach(function (res) {
+    IA.market.TRADED.forEach(function (res) {
       var meta = UnitData.RESOURCE_META[res];
       var price = state.market.prices[res];
       var base = state.market.base[res];
@@ -963,9 +955,9 @@
         el('div', { class: 'm-actions' }, [
           el('button', {
             class: 'ok-btn', text: 'Buy',
-            title: 'Buy at $' + SWW.market.buyPrice(state, res).toFixed(2),
+            title: 'Buy at $' + IA.market.buyPrice(state, res).toFixed(2),
             onclick: function () {
-              var r = SWW.market.buy(state, nation, res, amountRef.value);
+              var r = IA.market.buy(state, nation, res, amountRef.value);
               self.toast(r.ok ? 'Bought ' + amountRef.value + ' ' + meta.name.toLowerCase() +
                 ' for $' + Math.round(r.cost) : r.why, r.ok ? 'ok' : 'warn');
               self.refreshModal();
@@ -973,9 +965,9 @@
           }),
           el('button', {
             class: 'ghost', text: 'Sell',
-            title: 'Sell at $' + SWW.market.sellPrice(state, res).toFixed(2),
+            title: 'Sell at $' + IA.market.sellPrice(state, res).toFixed(2),
             onclick: function () {
-              var r = SWW.market.sell(state, nation, res, amountRef.value);
+              var r = IA.market.sell(state, nation, res, amountRef.value);
               self.toast(r.ok ? 'Sold ' + amountRef.value + ' ' + meta.name.toLowerCase() +
                 ' for $' + Math.round(r.gain) : r.why, r.ok ? 'ok' : 'warn');
               self.refreshModal();
@@ -984,10 +976,10 @@
         ])
       ]));
     });
-    wrap.appendChild(section('Exchange · treasury $' + fmt(nation.resources.cash), list));
+    wrap.appendChild(section('Exchange · treasury $' + fmt(nation.resources.money), list));
     wrap.appendChild(el('div', { class: 'muted small' },
       'Prices drift hourly and move against large orders. The spread is ' +
-      Math.round(SWW.market.SPREAD * 200) + '%.'));
+      Math.round(IA.market.SPREAD * 200) + '%.'));
     return wrap;
   };
 
@@ -1003,7 +995,7 @@
     provs.forEach(function (p) {
       var busy = p.construction ? BuildingData.BY_ID[p.construction.buildingId].name + ' L' + p.construction.level
         : p.queue.length ? UnitData.BY_ID[p.queue[0].typeId].name : null;
-      var out = SWW.economy.provinceOutput(state, p);
+      var out = IA.economy.provinceOutput(state, p);
       var depositMeta = UnitData.RESOURCE_META[p.deposit];
       list.appendChild(el('button', {
         class: 'city-row' + (busy ? '' : ' idle'),
@@ -1043,14 +1035,14 @@
         el('button', {
           class: 'mini gold', text: '⚡ ' + Math.max(1, Math.ceil(nation.researching.remaining / 3)),
           onclick: function () {
-            var r = SWW.orders.rushWithGold(state, nation, 'research', null);
+            var r = IA.orders.rushWithGold(state, nation, 'research', null);
             self.toast(r.ok ? 'Research rushed.' : r.why, r.ok ? 'ok' : 'warn');
             self.refreshModal();
           }
         }),
         el('button', {
           class: 'mini danger', text: '✕',
-          onclick: function () { SWW.orders.cancelResearch(state, nation); self.refreshModal(); }
+          onclick: function () { IA.orders.cancelResearch(state, nation); self.refreshModal(); }
         })
       ])));
     }
@@ -1061,8 +1053,8 @@
       techs.forEach(function (t) {
         var done = !!nation.research[t.id];
         var active = !!nation.researching && nation.researching.techId === t.id;
-        var open = SWW.orders.techAvailable(nation, t);
-        var afford = SWW.economy.canAfford(nation, t.cost);
+        var open = IA.orders.techAvailable(nation, t);
+        var afford = IA.economy.canAfford(nation, t.cost);
         var missing = t.req.filter(function (r) { return !nation.research[r]; })
           .map(function (r) { return ResearchData.BY_ID[r].name; });
         list.appendChild(el('div', { class: 'tech-row ' + (done ? 'done' : active ? 'active' : open ? 'open' : 'locked') }, [
@@ -1080,7 +1072,7 @@
               : el('button', {
               class: 'build-btn' + (open && afford && !nation.researching ? '' : ' disabled'),
               onclick: function () {
-                var r = SWW.orders.startResearch(state, nation, t.id);
+                var r = IA.orders.startResearch(state, nation, t.id);
                 self.toast(r.ok ? 'Researching ' + t.name + '.' : r.why, r.ok ? 'ok' : 'warn');
                 self.refreshModal();
               }
@@ -1150,7 +1142,7 @@
         el('span', { class: 'chip', style: 'background:' + n.color }),
         el('span', { class: 'rank-name', text: n.name + (n.alive ? '' : ' (defeated)') }),
         el('span', { class: 'rank-vp', text: n.vp + ' VP' }),
-        el('span', { class: 'rank-meta', text: n.provinces.length + 'p · ' + Math.round(SWW.state.nationPower(state, n.id)) })
+        el('span', { class: 'rank-meta', text: n.provinces.length + 'p · ' + Math.round(IA.state.nationPower(state, n.id)) })
       ]));
     });
     return list;
@@ -1159,10 +1151,10 @@
   UI.buildArmyOverview = function () {
     var self = this, state = this.state;
     var list = el('div', { class: 'stack-list' });
-    var armies = SWW.state.armiesOf(state, state.playerId);
-    armies.sort(function (a, b) { return SWW.state.armyPower(b) - SWW.state.armyPower(a); });
+    var armies = IA.state.armiesOf(state, state.playerId);
+    armies.sort(function (a, b) { return IA.state.armyPower(b) - IA.state.armyPower(a); });
     armies.forEach(function (army) {
-      var st = SWW.state.armyStrength(army);
+      var st = IA.state.armyStrength(army);
       var prov = state.provinces[army.provinceId];
       list.appendChild(el('button', {
         class: 'stack-row',
@@ -1173,7 +1165,7 @@
         }
       }, [
         el('span', { class: 'stack-name', text: army.name }),
-        el('span', { class: 'stack-meta', text: prov.name + ' · ' + SWW.state.unitCount(army) + ' bn · ' +
+        el('span', { class: 'stack-meta', text: prov.name + ' · ' + IA.state.unitCount(army) + ' bn · ' +
           Math.round(st.ratio * 100) + '%' + (army.path.length ? ' · moving' : army.inCombat ? ' · fighting' : '') })
       ]));
     });
@@ -1184,12 +1176,12 @@
   UI.buildGameMenu = function () {
     var self = this, state = this.state;
     var wrap = el('div', { class: 'menu-list' });
-    var info = SWW.save.peek();
+    var info = IA.save.peek();
     wrap.appendChild(el('div', { class: 'muted small', text: 'Seed: ' + state.seed }));
     wrap.appendChild(el('button', {
       class: 'ok-btn wide', text: 'Save game',
       onclick: function () {
-        var r = SWW.save.save(state);
+        var r = IA.save.save(state);
         self.toast(r.ok ? 'Game saved.' : 'Save failed: ' + r.why, r.ok ? 'ok' : 'warn');
       }
     }));
@@ -1199,9 +1191,9 @@
       onclick: function () {
         if (!info) return;
         self.confirm('Load save', 'Unsaved progress in this war will be lost.', function () {
-          var r = SWW.save.load();
+          var r = IA.save.load();
           if (!r.ok) { self.toast('Load failed: ' + r.why, 'warn'); return; }
-          SWW.game.replaceState(r.state);
+          IA.game.replaceState(r.state);
           self.closeModal();
         }, { okLabel: 'Load' });
       }
@@ -1211,7 +1203,7 @@
       onclick: function () {
         self.confirm('Abandon the war',
           'Your nation will be left to the AI and you will return to the menu.',
-          function () { SWW.game.toMenu(); }, { danger: true, okLabel: 'Abandon' });
+          function () { IA.game.toMenu(); }, { danger: true, okLabel: 'Abandon' });
       }
     }));
     return wrap;
@@ -1223,9 +1215,9 @@
       el('p', { text: 'Provinces are worth victory points; cities and capitals are worth more. ' +
         'Reach the victory threshold shown in the top bar, or be the last nation standing.' }),
       el('h4', { text: 'Economy' }),
-      el('p', { text: 'Every province farms and pays tax. Its deposit yields one of materials, fuel or ' +
-        'chemicals. Ammunition only comes from arms factories, which burn materials and chemicals to make it. ' +
-        'Run out of food or cash and your army starts to fall apart.' }),
+      el('p', { text: 'Every province farms and pays tax. Its deposit yields one of iron, oil or ' +
+        'coal. Ammunition only comes from arms factories, which burn iron and coal to make it. ' +
+        'Run out of grain or money and your army starts to fall apart.' }),
       el('h4', { text: 'Fighting' }),
       el('p', { text: 'Move a stack onto a hostile province to attack it. Stacks in the same province ' +
         'exchange fire every hour; the survivor grinds down the occupation timer. Artillery, SAMs, ' +
@@ -1317,7 +1309,7 @@
       : (winner ? winner.name + ' has won the war on day ' + Math.ceil(state.time / 24) + '.'
         : 'Your nation has been erased from the map.');
     over.classList.add('show');
-    doc.getElementById('overRestart').onclick = function () { SWW.game.toMenu(); };
+    doc.getElementById('overRestart').onclick = function () { IA.game.toMenu(); };
     doc.getElementById('overWatch').onclick = function () { over.classList.remove('show'); };
     this.setSpeed('pause');
   };
@@ -1428,7 +1420,7 @@
     return node;
   }
 
-  SWW.UI = UI;
-  SWW.el = el;
-  SWW.clearNode = clear;
+  IA.UI = UI;
+  IA.el = el;
+  IA.clearNode = clear;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

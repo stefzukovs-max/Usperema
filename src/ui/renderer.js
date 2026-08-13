@@ -16,10 +16,10 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var TERRAIN = SWW.worldgen.TERRAIN;
-  var UnitData = SWW.UnitData;
-  var clamp = SWW.util.clamp;
+  var IA = global.IA = global.IA || {};
+  var TERRAIN = IA.worldgen.TERRAIN;
+  var UnitData = IA.UnitData;
+  var clamp = IA.util.clamp;
 
   var BASE_SCALE = 2;            // cached-raster pixels per map unit
   var VECTOR_ZOOM = 5;           // switch to vectors at or above this zoom
@@ -39,13 +39,13 @@
   var DETAIL_DELAY = 90;         // ms of stillness before detail starts
   var DETAIL_FADE = 220;         // ms to fade it back in
 
-  var OCEAN = '#12283d';
-  var OCEAN_DEEP = '#0e2033';
-  var NEUTRAL = '#6a7480';
-  var COAST_LINE = 'rgba(6,13,20,0.8)';
-  var NATIONAL_LINE = 'rgba(247,252,255,0.72)';
-  var PROVINCE_LINE = 'rgba(238,248,255,0.26)';
-  var SHELF = 'rgba(126,196,232,0.10)';       // shallow water hugging the coast
+  var OCEAN = '#2b3a44';            // map-paper sea, not open ocean blue
+  var OCEAN_DEEP = '#243139';
+  var NEUTRAL = '#8d8570';
+  var COAST_LINE = 'rgba(28,26,18,0.85)';
+  var NATIONAL_LINE = 'rgba(28,25,16,0.80)';
+  var PROVINCE_LINE = 'rgba(40,36,24,0.34)';
+  var SHELF = 'rgba(196,214,220,0.09)';       // shallow water hugging the coast
 
   /*
    * Terrain texture.
@@ -172,9 +172,9 @@
     var cached = this.paths[prov.id];
     if (cached) return cached;
     var path = new global.Path2D();
-    var map = SWW.mapdata.load();
+    var map = IA.mapdata.load();
     for (var l = 0; l < prov.loops.length; l++) {
-      var pts = SWW.mapdata.loopPoints(map, prov.loops[l]);
+      var pts = IA.mapdata.loopPoints(map, prov.loops[l]);
       if (pts.length < 6) continue;
       path.moveTo(pts[0], pts[1]);
       for (var i = 2; i < pts.length; i += 2) path.lineTo(pts[i], pts[i + 1]);
@@ -397,6 +397,7 @@
     var prov = this.state.provinces[provinceId];
     if (!prov || !this.baseCtx) return;
     this.fillCache[provinceId] = null;
+    this.mapEpoch = (this.mapEpoch || 0) + 1;
     this.paintBase(this.baseCtx, prov);
   };
 
@@ -523,6 +524,220 @@
 
   // --- frame ---------------------------------------------------------------
 
+  /** Map units to CSS pixels.  The device-ratio scale is applied by the caller. */
+  Renderer.prototype.applyCamera = function (ctx) {
+    var z = this.camera.zoom;
+    ctx.translate(-this.camera.x * z + this.viewW / 2, -this.camera.y * z + this.viewH / 2);
+    ctx.scale(z, z);
+  };
+
+  /** Land provinces whose bounding box meets the view. */
+  Renderer.prototype.visibleLand = function (box) {
+    var state = this.state, out = [];
+    for (var i = 0; i < state.provinces.length; i++) {
+      var p = state.provinces[i];
+      if (p.isSea || !overlaps(box, p.bbox)) continue;
+      out.push(p);
+    }
+    return out;
+  };
+
+  /** The ground itself: coastal shelf, province fills, then every border. */
+  Renderer.prototype.drawGround = function (ctx, z, box, list) {
+    this.drawShelf(ctx, z, box);
+    for (var i = 0; i < list.length; i++) {
+      ctx.fillStyle = this.fillFor(list[i]);
+      ctx.fill(this.pathFor(list[i]));
+    }
+    this.strokeBorders(ctx, z, box);
+  };
+
+  /*
+   * The scrolling map layer.
+   *
+   * Stroking the borders and the coastal shelf is by far the most expensive
+   * thing on screen — about seventeen milliseconds of rasterising at a
+   * continental zoom, which is the whole frame budget on a phone — and almost
+   * none of it changes from one frame to the next.  A map held still redraws an
+   * identical picture sixty times a second, and a map being dragged redraws a
+   * picture that has moved by nine pixels.
+   *
+   * So the ground is kept in a layer the size of the viewport, and each frame
+   * only reconciles it with where the camera now is:
+   *
+   *   still      — nothing to do, blit it
+   *   dragged    — scroll the layer by whole device pixels and repaint just the
+   *                strip that scrolled in, a few percent of the view
+   *   zoomed, resized, or a province changed hands — repaint the lot
+   *
+   * The layer is aligned to `anchor` rather than to the camera, because
+   * scrolling by a fraction of a pixel would resample the whole layer and blur
+   * it.  Anchor and camera therefore differ by up to half a device pixel, which
+   * is why the armies and labels drawn live over the top are not visibly out of
+   * step with the ground beneath them.
+   *
+   * Terrain texture is a second layer, so it can fade in over a still map by
+   * changing an alpha rather than by redrawing anything.
+   */
+  var LAYER_OVERLAP = 3;         // device pixels of the strip that fall on good ground
+
+  function newCanvas(w, h) {
+    var c = global.document.createElement('canvas');
+    c.width = w; c.height = h;
+    return c;
+  }
+
+  /** Map-unit box covering a device-pixel rect of a layer drawn for `anchor`. */
+  Renderer.prototype.boxOfRect = function (anchor, x, y, w, h) {
+    var s = this.camera.zoom * this.dpr;
+    var mx = anchor.x - this.viewW / (2 * this.camera.zoom) + x / s;
+    var my = anchor.y - this.viewH / (2 * this.camera.zoom) + y / s;
+    // The margin covers line widths that reach in from outside the rect.
+    return [mx - 2, my - 2, mx + w / s + 2, my + h / s + 2];
+  };
+
+  /** Paint the ground into `target`, either whole or clipped to device rects. */
+  Renderer.prototype.paintLayer = function (target, anchor, rects) {
+    var z = this.camera.zoom;
+    var ctx = target.getContext('2d');
+    var i;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.save();
+    var box;
+    if (rects) {
+      ctx.beginPath();
+      for (i = 0; i < rects.length; i++) ctx.rect(rects[i][0], rects[i][1], rects[i][2], rects[i][3]);
+      ctx.clip();
+      box = this.boxOfRect(anchor, rects[0][0], rects[0][1], rects[0][2], rects[0][3]);
+      for (i = 1; i < rects.length; i++) {
+        var b = this.boxOfRect(anchor, rects[i][0], rects[i][1], rects[i][2], rects[i][3]);
+        if (b[0] < box[0]) box[0] = b[0];
+        if (b[1] < box[1]) box[1] = b[1];
+        if (b[2] > box[2]) box[2] = b[2];
+        if (b[3] > box[3]) box[3] = b[3];
+      }
+    } else {
+      box = this.boxOfRect(anchor, 0, 0, target.width, target.height);
+    }
+    ctx.fillStyle = OCEAN;
+    ctx.fillRect(0, 0, target.width, target.height);
+    ctx.scale(this.dpr, this.dpr);
+    ctx.translate(-anchor.x * z + this.viewW / 2, -anchor.y * z + this.viewH / 2);
+    ctx.scale(z, z);
+    if (z < VECTOR_ZOOM) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(this.baseLayer, 0, 0, this.state.mapW, this.state.mapH);
+    } else {
+      this.drawGround(ctx, z, box, this.visibleLand(box));
+    }
+    ctx.restore();
+  };
+
+  Renderer.prototype.updateLayer = function () {
+    var W = Math.max(1, Math.round(this.viewW * this.dpr));
+    var H = Math.max(1, Math.round(this.viewH * this.dpr));
+    if (!this.layer || this.layer.width !== W || this.layer.height !== H) {
+      this.layer = newCanvas(W, H);
+      this.spare = newCanvas(W, H);
+      this.layerSig = null;
+    }
+    // Anything that changes the whole picture: a new zoom, a new canvas size,
+    // or ground that has changed hands.
+    var sig = [this.camera.zoom, this.dpr, W, H, this.mapEpoch || 0].join(',');
+    this.anchorEpoch = (this.anchorEpoch || 0) + 1;
+    if (this.layerSig !== sig) {
+      this.layerSig = sig;
+      this.anchor = { x: this.camera.x, y: this.camera.y };
+      this.paintLayer(this.layer, this.anchor, null);
+      return;
+    }
+
+    var s = this.camera.zoom * this.dpr;
+    var sdx = Math.round((this.anchor.x - this.camera.x) * s);
+    var sdy = Math.round((this.anchor.y - this.camera.y) * s);
+    if (!sdx && !sdy) { this.anchorEpoch--; return; }
+    if (Math.abs(sdx) >= W || Math.abs(sdy) >= H) {     // jumped clean off
+      this.anchor.x = this.camera.x;
+      this.anchor.y = this.camera.y;
+      this.paintLayer(this.layer, this.anchor, null);
+      return;
+    }
+
+    this.anchor.x -= sdx / s;
+    this.anchor.y -= sdy / s;
+    var spare = this.spare;
+    var sc = spare.getContext('2d');
+    sc.setTransform(1, 0, 0, 1, 0, 0);
+    sc.clearRect(0, 0, W, H);
+    sc.drawImage(this.layer, sdx, sdy);
+
+    /*
+     * The repainted strip reaches a little way back into ground that scrolled
+     * across intact.  A stroke that crosses the edge of a clip is blended
+     * against whatever is already there, which would leave a faint trace along
+     * every border the strip cut through, and those traces build up over a long
+     * drag.  Landing that edge inside pixels that are already correct makes the
+     * blend a blend of two identical values, so it leaves no mark.
+     */
+    var pad = LAYER_OVERLAP;
+    var rects = [];
+    if (sdx > 0) rects.push([0, 0, sdx + pad, H]);
+    else if (sdx < 0) rects.push([W + sdx - pad, 0, -sdx + pad, H]);
+    if (sdy > 0) rects.push([0, 0, W, sdy + pad]);
+    else if (sdy < 0) rects.push([0, H + sdy - pad, W, -sdy + pad]);
+    this.paintLayer(spare, this.anchor, rects);
+
+    this.spare = this.layer;
+    this.layer = spare;
+  };
+
+  /** Terrain texture for the current anchor, built only once the map settles. */
+  Renderer.prototype.updateTexLayer = function () {
+    var key = this.layerSig + '|' + this.anchorEpoch;
+    if (this.texKey === key) return;
+    this.texKey = key;
+    var z = this.camera.zoom;
+    var W = this.layer.width, H = this.layer.height;
+    if (!this.layerTex || this.layerTex.width !== W || this.layerTex.height !== H) {
+      this.layerTex = newCanvas(W, H);
+    }
+    var ctx = this.layerTex.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.scale(this.dpr, this.dpr);
+    ctx.translate(-this.anchor.x * z + this.viewW / 2, -this.anchor.y * z + this.viewH / 2);
+    ctx.scale(z, z);
+    var list = this.visibleLand(this.boxOfRect(this.anchor, 0, 0, W, H));
+    for (var i = 0; i < list.length; i++) {
+      this.textureProvince(ctx, list[i], this.pathFor(list[i]), z);
+    }
+    ctx.restore();
+  };
+
+  /**
+   * Dim what the player cannot see into.  Vision changes as armies march, so
+   * this is drawn live rather than baked into the cached layer.  Only in vector
+   * mode: at world zoom the political map is common knowledge — it is the
+   * armies that are hidden.
+   */
+  Renderer.prototype.drawFog = function (ctx, ui) {
+    if (!ui || !ui.visible) return;
+    var state = this.state;
+    var box = this.viewBox(2);
+    ctx.save();
+    this.applyCamera(ctx);
+    ctx.globalAlpha = 0.34;
+    ctx.fillStyle = '#050a10';
+    for (var i = 0; i < state.provinces.length; i++) {
+      var p = state.provinces[i];
+      if (p.isSea || ui.visible[p.id] || !overlaps(box, p.bbox)) continue;
+      ctx.fill(this.pathFor(p));
+    }
+    ctx.restore();
+  };
+
   Renderer.prototype.draw = function (ui) {
     var state = this.state;
     if (state.dirtyProvinces && state.dirtyProvinces.length) {
@@ -532,23 +747,22 @@
     }
     var ctx = this.ctx;
     var z = this.camera.zoom;
+    var detail = this.detailAlpha();
 
     ctx.save();
     ctx.scale(this.dpr, this.dpr);
-    ctx.fillStyle = OCEAN;
-    ctx.fillRect(0, 0, this.viewW, this.viewH);
 
-    ctx.save();
-    ctx.translate(-this.camera.x * z + this.viewW / 2, -this.camera.y * z + this.viewH / 2);
-    ctx.scale(z, z);
-    if (z < VECTOR_ZOOM) {
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-      ctx.drawImage(this.baseLayer, 0, 0, state.mapW, state.mapH);
-    } else {
-      this.drawVector(ctx, ui, z);
+    this.updateLayer();
+    ctx.drawImage(this.layer, 0, 0, this.viewW, this.viewH);
+    if (z >= VECTOR_ZOOM && detail > 0) {
+      this.updateTexLayer();
+      ctx.save();
+      ctx.globalAlpha = detail;
+      ctx.drawImage(this.layerTex, 0, 0, this.viewW, this.viewH);
+      ctx.restore();
     }
-    ctx.restore();
+
+    if (z >= VECTOR_ZOOM) this.drawFog(ctx, ui);
 
     this.drawNationLabels(ctx);
     this.drawProvinceMarkers(ctx, ui);
@@ -556,38 +770,6 @@
     this.drawArmies(ctx, ui);
     this.drawLabels(ctx, ui);
     ctx.restore();
-  };
-
-  Renderer.prototype.drawVector = function (ctx, ui, z) {
-    var state = this.state;
-    var box = this.viewBox(2);
-    var visible = [];
-    var i;
-    var detail = this.detailAlpha();
-    this.drawShelf(ctx, z, box);
-    for (i = 0; i < state.provinces.length; i++) {
-      var p = state.provinces[i];
-      if (p.isSea || !overlaps(box, p.bbox)) continue;
-      visible.push(p);
-      var path = this.pathFor(p);
-      ctx.fillStyle = this.fillFor(p);
-      ctx.fill(path);
-      if (detail > 0.01) this.textureProvince(ctx, p, path, z, detail);
-    }
-    this.strokeBorders(ctx, z, box);
-
-    // Dim what the player cannot see into.  Only in vector mode: at world zoom
-    // the political map is common knowledge — it is the armies that are hidden.
-    if (ui && ui.visible) {
-      ctx.save();
-      ctx.globalAlpha = 0.34;
-      ctx.fillStyle = '#050a10';
-      for (i = 0; i < visible.length; i++) {
-        if (ui.visible[visible[i].id]) continue;
-        ctx.fill(this.pathFor(visible[i]));
-      }
-      ctx.restore();
-    }
   };
 
   Renderer.prototype.drawProvinceMarkers = function (ctx, ui) {
@@ -762,7 +944,7 @@
      */
     function drawStack(c, army, x, y, bw, bh, uiRef) {
       var nation = state.nationById[army.ownerId];
-      var strength = SWW.state.armyStrength(army);
+      var strength = IA.state.armyStrength(army);
       var selected = uiRef && uiRef.selectedArmyId === army.id;
       var ratio = clamp(strength.ratio, 0, 1);
       var hoist = bw * 0.3;
@@ -803,7 +985,7 @@
       c.font = 'bold ' + Math.round(bh * 0.46) + 'px sans-serif';
       if (lead) c.fillText(lead.icon, -bw / 2 + hoist / 2, -barH / 2);
       c.font = 'bold ' + Math.round(bh * 0.44) + 'px "Segoe UI", system-ui, sans-serif';
-      c.fillText(String(SWW.state.unitCount(army)), (hoist / 2) - 1, -barH / 2);
+      c.fillText(String(IA.state.unitCount(army)), (hoist / 2) - 1, -barH / 2);
 
       c.strokeStyle = selected ? '#7fe3ff' : (army.inCombat ? '#ff7a5f' : 'rgba(6,12,18,0.85)');
       c.lineWidth = selected || army.inCombat ? 2 : 1;
@@ -813,42 +995,94 @@
   };
 
   /**
-   * Where each country's name is written, and how big.  Anchored on the
-   * province nearest the nation's weighted centre, so the label always lands on
-   * that nation's own land rather than in the sea or inside a neighbour.
+   * Where each country's name is written, and how big.
+   *
+   * A country is labelled once per connected block of territory rather than
+   * once overall.  An empire's area-weighted centre is nowhere near its
+   * homeland — Denmark's lands average out in the middle of Greenland and
+   * France's in the Sahara — so a single label puts the name in the wrong
+   * hemisphere.  Each block is instead named on the province nearest its own
+   * centre and sized from its own area, which writes the home country where it
+   * actually is and gives a large colony its own smaller name.
+   *
+   * Only the substantial blocks are kept, or every island in an empire would
+   * claim the full name of it.
    */
+  var MIN_BLOCK_SHARE = 0.12;      // of the nation's largest block
+  var MAX_BLOCKS = 4;
+
   Renderer.prototype.refreshNationLabels = function () {
     var state = this.state;
-    var acc = {};
-    var i;
+    var seen = new Uint8Array(state.landCount);
+    var byNation = {};
+    var queue = [];
+    var i, k;
+
     for (i = 0; i < state.landCount; i++) {
-      var p = state.provinces[i];
-      if (!p.nationId) continue;
-      var a = acc[p.nationId] || (acc[p.nationId] = { sx: 0, sy: 0, size: 0, list: [] });
-      a.sx += p.cx * p.size;
-      a.sy += p.cy * p.size;
-      a.size += p.size;
-      a.list.push(p);
-    }
-    var labels = [];
-    for (var id in acc) {
-      var e = acc[id];
-      var cx = e.sx / e.size, cy = e.sy / e.size;
-      var best = null, bestD = Infinity;
-      for (i = 0; i < e.list.length; i++) {
-        var q = e.list[i];
-        var dx = q.cx - cx, dy = q.cy - cy;
-        var d = dx * dx + dy * dy;
-        if (d < bestD) { bestD = d; best = q; }
+      if (seen[i] || !state.provinces[i].nationId) continue;
+      var nationId = state.provinces[i].nationId;
+      var capitalId = state.nationById[nationId] ? state.nationById[nationId].capitalProvince : -1;
+      var hasCapital = false;
+      var block = [];
+      queue.length = 0;
+      queue.push(i);
+      seen[i] = 1;
+      while (queue.length) {
+        var p = state.provinces[queue.pop()];
+        block.push(p);
+        if (p.id === capitalId) hasCapital = true;
+        for (k = 0; k < p.neighbors.length; k++) {
+          var q = state.provinces[p.neighbors[k]];
+          if (q.isSea || seen[q.id] || q.nationId !== nationId) continue;
+          seen[q.id] = 1;
+          queue.push(q.id);
+        }
       }
-      var nation = state.nationById[id];
-      if (!nation || !best) continue;
-      labels.push({
-        text: nation.name.toUpperCase(),
+
+      var sx = 0, sy = 0, area = 0;
+      var x0 = Infinity, x1 = -Infinity;
+      for (k = 0; k < block.length; k++) {
+        var b = block[k];
+        sx += b.cx * b.size;
+        sy += b.cy * b.size;
+        area += b.size;
+        if (b.bbox[0] < x0) x0 = b.bbox[0];
+        if (b.bbox[2] > x1) x1 = b.bbox[2];
+      }
+      var cx = sx / area, cy = sy / area;
+      var best = null, bestD = Infinity;
+      for (k = 0; k < block.length; k++) {
+        var dx = block[k].cx - cx, dy = block[k].cy - cy;
+        var d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; best = block[k]; }
+      }
+      (byNation[nationId] || (byNation[nationId] = [])).push({
         x: best.cx, y: best.cy,
+        area: area,
+        width: x1 - x0,
+        capital: hasCapital,
         // Big countries get big type, the way an atlas sets them.
-        size: Math.sqrt(e.size) * 0.24
+        size: Math.sqrt(area) * 0.24
       });
+    }
+
+    var labels = [];
+    for (var id in byNation) {
+      var nation = state.nationById[id];
+      if (!nation) continue;
+      var blocks = byNation[id].sort(function (a, b) { return b.area - a.area; });
+      var floor = blocks[0].area * MIN_BLOCK_SHARE;
+      var kept = 0;
+      for (i = 0; i < blocks.length; i++) {
+        // The homeland is always named, however small it is beside the
+        // colonies — France belongs on France, not only on French West Africa.
+        if (!blocks[i].capital) {
+          if (kept >= MAX_BLOCKS || blocks[i].area < floor) continue;
+          kept++;
+        }
+        blocks[i].text = nation.name.toUpperCase();
+        labels.push(blocks[i]);
+      }
     }
     this.nationLabels = labels;
   };
@@ -867,10 +1101,18 @@
     for (var i = 0; i < order.length; i++) {
       var l = order[i];
       if (l.x < box[0] || l.x > box[2] || l.y < box[1] || l.y > box[3]) continue;
-      var px = l.size * z;
-      if (px < 13 || px > 96) continue;           // too cramped, or absurdly large
+      var px = Math.min(l.size * z, 96);
+      if (px < 13) continue;                      // too cramped to read
       var s = this.toScreen(l.x, l.y);
       ctx.font = '600 ' + Math.round(px) + 'px "Segoe UI", system-ui, sans-serif';
+      // A name never runs wider than the land it names.
+      var wide = ctx.measureText(l.text).width;
+      var room = l.width * z * 0.92;
+      if (wide > room) {
+        px = Math.floor(px * room / wide);
+        if (px < 13) continue;
+        ctx.font = '600 ' + px + 'px "Segoe UI", system-ui, sans-serif';
+      }
       var half = ctx.measureText(l.text).width / 2;
       var boxL = [s.x - half, s.y - px * 0.6, s.x + half, s.y + px * 0.6];
       var clash = false;
@@ -916,5 +1158,5 @@
     ctx.restore();
   };
 
-  SWW.Renderer = Renderer;
+  IA.Renderer = Renderer;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

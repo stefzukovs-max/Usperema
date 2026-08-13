@@ -24,6 +24,7 @@
 var fs = require('fs');
 var path = require('path');
 var cp = require('child_process');
+var Era = require('./era1914');
 
 var ROOT = path.join(__dirname, '..');
 var CACHE = path.join(__dirname, 'geodata');
@@ -55,6 +56,14 @@ var GW = MAP_W * SUB;
 var GH = MAP_H * SUB;
 
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+/** Build-grid coordinates back to longitude/latitude. */
+function unproject(x, y) {
+  var lon = x / GW * 360 - 180;
+  var m = Y_TOP - (y / GH) * (Y_TOP - Y_BOT);
+  var lat = (Math.atan(Math.exp(m / 1.25)) - Math.PI / 4) / 0.4 * 180 / Math.PI;
+  return [lon, lat];
+}
 
 /** Longitude/latitude to build-grid coordinates. */
 function project(lon, lat) {
@@ -177,12 +186,22 @@ function scatter(rng, cells, target) {
   return seeds;
 }
 
+/*
+ * How far an island may be from a region before joining it stops making sense,
+ * in build-grid cells — about six degrees of longitude — and how much ground it
+ * needs before it is worth a province of its own out there.  Water is grown
+ * without a limit: an orphaned lake joining a distant sea zone bothers nobody,
+ * whereas an orphaned island carries a name and sometimes a capital.
+ */
+var MAX_ATTACH = 34;
+var MIN_STANDALONE = 10;
+
 /**
  * Grow regions from seeds by equal-speed BFS, restricted to cells whose
  * `domain` value matches.  Returns the number of regions created, including
  * extra ones for pockets the seeds could not reach (islands).
  */
-function growRegions(seeds, domain, domainValue, region, nextId, minIslandCells) {
+function growRegions(seeds, domain, domainValue, region, nextId, minIslandCells, maxAttach) {
   var queue = seeds.slice(), head = 0, i;
   for (i = 0; i < seeds.length; i++) region[seeds[i]] = nextId + i;
   var made = seeds.length;
@@ -200,7 +219,14 @@ function growRegions(seeds, domain, domainValue, region, nextId, minIslandCells)
       queue.push(n);
     }
   }
-  // Unreached pockets: small ones join their nearest region, big ones stand alone.
+  /*
+   * Unreached pockets: islands the flood could not walk to.
+   *
+   * Collect them all before deciding anything, because a pocket may well
+   * belong with another pocket rather than with a seeded region — Zealand
+   * belongs with Jutland, and neither of them was seeded.
+   */
+  var pockets = [];
   for (var c = 0; c < region.length; c++) {
     if (domain[c] !== domainValue || region[c] !== -1) continue;
     var blob = [c], h2 = 0;
@@ -217,22 +243,65 @@ function growRegions(seeds, domain, domainValue, region, nextId, minIslandCells)
         if (region[ns[m]] === -1 && domain[ns[m]] === domainValue) { region[ns[m]] = -2; blob.push(ns[m]); }
       }
     }
-    if (blob.length >= minIslandCells || made === 0) {
+    pockets.push(blob);
+  }
+
+  // An island with real substance to it becomes a province in its own right.
+  var small = [];
+  for (var pk = 0; pk < pockets.length; pk++) {
+    if (pockets[pk].length >= minIslandCells || made === 0) {
       var id2 = nextId + made; made++;
-      for (i = 0; i < blob.length; i++) region[blob[i]] = id2;
+      for (i = 0; i < pockets[pk].length; i++) region[pockets[pk][i]] = id2;
     } else {
-      // Attach to whichever of this domain's regions has the nearest centre.
-      var bx = 0, by = 0;
-      for (i = 0; i < blob.length; i++) { bx += blob[i] % GW; by += (blob[i] / GW) | 0; }
-      bx /= blob.length; by /= blob.length;
-      var best = -1, bestD = Infinity;
-      for (i = 0; i < seeds.length; i++) {
-        var dx = (seeds[i] % GW) - bx, dy = ((seeds[i] / GW) | 0) - by;
-        var d = dx * dx + dy * dy;
-        if (d < bestD) { bestD = d; best = region[seeds[i]]; }
+      small.push(pockets[pk]);
+    }
+  }
+
+  var cx = [], cy = [], cn = [];
+  for (c = 0; c < region.length; c++) {
+    var k = region[c] - nextId;
+    if (k < 0 || k >= made) continue;
+    cx[k] = (cx[k] || 0) + (c % GW);
+    cy[k] = (cy[k] || 0) + ((c / GW) | 0);
+    cn[k] = (cn[k] || 0) + 1;
+  }
+
+  /*
+   * What is left is too small to stand alone, so it joins the nearest region
+   * of the same country — but only one near enough for that to mean anything.
+   * Without the distance limit the rule reaches across an ocean: Zealand joins
+   * a region in Iceland, and Denmark ends up governed from the Arctic with
+   * Copenhagen sitting off Reykjavik.  An island with no near neighbour keeps
+   * its own province instead; a speck too small for even that is given back to
+   * the sea, which is closer to the truth at this resolution than dragging a
+   * province halfway round the world to collect it.
+   */
+  var reach = maxAttach === undefined ? Infinity : maxAttach;
+  for (pk = 0; pk < small.length; pk++) {
+    var blob2 = small[pk];
+    var bx = 0, by = 0;
+    for (i = 0; i < blob2.length; i++) { bx += blob2[i] % GW; by += (blob2[i] / GW) | 0; }
+    bx /= blob2.length; by /= blob2.length;
+    var best = -1, bestD = Infinity;
+    for (i = 0; i < made; i++) {
+      if (!cn[i]) continue;
+      var dx = cx[i] / cn[i] - bx, dy = cy[i] / cn[i] - by;
+      var d = dx * dx + dy * dy;
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best < 0 || bestD > reach * reach) {
+      if (blob2.length < MIN_STANDALONE && made > 0) {
+        for (i = 0; i < blob2.length; i++) { region[blob2[i]] = -1; domain[blob2[i]] = -1; }
+        continue;
       }
-      if (best < 0) { best = nextId + made; made++; }
-      for (i = 0; i < blob.length; i++) region[blob[i]] = best;
+      best = made; made++;
+      cx[best] = 0; cy[best] = 0; cn[best] = 0;
+    }
+    for (i = 0; i < blob2.length; i++) {
+      region[blob2[i]] = nextId + best;
+      cx[best] += blob2[i] % GW;
+      cy[best] += (blob2[i] / GW) | 0;
+      cn[best]++;
     }
   }
   return made;
@@ -532,51 +601,41 @@ function main() {
   var features = [];        // {rings, nationIndex or -1}
 
   /*
-   * Natural Earth groups territories under a sovereignty code (FR1, US1, DN1),
-   * which is not an ISO country code.  For each group the "home" feature — the
-   * one whose ADMIN matches its SOVEREIGNT — supplies the real ISO code and the
-   * country's name; its dependencies fold in behind it.
+   * Every present-day territory is filed under the 1914 power that held it,
+   * so Bohemia lands in Austria-Hungary, Finland in the Russian Empire and
+   * the Raj in the British Empire.  Anything the table does not name is left
+   * unclaimed rather than guessed at.
    */
-  var groups = {};
-  countriesGeo.features.forEach(function (f) {
-    var p = f.properties;
-    if (p.ADM0_A3 === 'ATA' || p.ISO_A3 === 'ATA') return;               // Antarctica
-    if (p.TYPE === 'Disputed' || p.TYPE === 'Indeterminate') return;
-    if (NAME_2026[p.ADMIN] === null || NAME_2026[p.SOVEREIGNT] === null) return;
-    var key = p.SOV_A3 || p.ADM0_A3;
-    (groups[key] || (groups[key] = [])).push(f);
-  });
-  Object.keys(groups).forEach(function (key) {
-    var list = groups[key];
-    var home = null;
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].properties.ADMIN === list[i].properties.SOVEREIGNT) { home = list[i]; break; }
-    }
-    if (!home) home = list[0];
-    var hp = home.properties;
-    var iso = hp.ISO_A3_EH && hp.ISO_A3_EH !== '-99' ? hp.ISO_A3_EH
-      : (hp.ISO_A3 && hp.ISO_A3 !== '-99' ? hp.ISO_A3 : hp.ADM0_A3);
-    var name = NAME_2026[hp.ADMIN] || hp.ADMIN;
-    nationByIso[key] = nations.length;
-    nations.push({ iso: iso, name: name, area: 0, cells: [], capitalCity: null, pop: 0 });
+  Era.POWERS.forEach(function (power) {
+    nationByIso[power.id] = nations.length;
+    nations.push({
+      iso: power.id, name: power.name, bloc: power.bloc,
+      capitalCity: power.capital, area: 0, cells: [], pop: 0
+    });
   });
 
+  var unmapped = {};
   countriesGeo.features.forEach(function (f) {
     var p = f.properties;
-    if (p.ADM0_A3 === 'ATA' || p.ISO_A3 === 'ATA') return;
-    if (NAME_2026[p.ADMIN] === null || NAME_2026[p.SOVEREIGNT] === null) return;
-    var disputed = p.TYPE === 'Disputed' || p.TYPE === 'Indeterminate';
-    var nationIndex = -1;
-    if (!disputed) {
-      nationIndex = nationByIso[p.SOV_A3 || p.ADM0_A3];
-      if (nationIndex === undefined) return;
-      nations[nationIndex].pop += (p.POP_EST || 0);
-    }
+    if (p.ADM0_A3 === 'ATA' || p.ISO_A3 === 'ATA') return;                 // Antarctica
+    if (p.TYPE === 'Disputed' || p.TYPE === 'Indeterminate') return;
+    var iso = p.ISO_A3_EH && p.ISO_A3_EH !== '-99' ? p.ISO_A3_EH
+      : (p.ISO_A3 && p.ISO_A3 !== '-99' ? p.ISO_A3 : p.ADM0_A3);
+    var powerId = Era.HELD_BY[iso];
+    var nationIndex = powerId === undefined ? -1 : nationByIso[powerId];
+    if (powerId === undefined) unmapped[iso] = p.ADMIN;
+    else nations[nationIndex].pop += (p.POP_EST || 0);
     polygonsOf(f.geometry).forEach(function (poly) {
       features.push({ rings: projectRings(poly), nation: nationIndex });
     });
   });
-  console.log('  ' + nations.length + ' nations from ' + features.length + ' polygons');
+
+  var missing = Object.keys(unmapped);
+  if (missing.length) {
+    console.log('  ' + missing.length + ' territories left unclaimed: ' +
+      missing.slice(0, 8).join(', ') + (missing.length > 8 ? '…' : ''));
+  }
+  console.log('  ' + nations.length + ' powers from ' + features.length + ' polygons');
 
   // 2. Rasterise: water = -1, disputed land = -2, otherwise the nation index.
   var owner = new Int16Array(GW * GH).fill(-1);
@@ -592,6 +651,28 @@ function main() {
     });
   });
 
+  /*
+   * Frontiers that ran through countries which did not exist yet.  Each split
+   * only touches ground currently held by its `from` power, which stops the
+   * Silesian box reaching into Bohemia or the Hejaz box into Egypt.
+   */
+  Era.SPLITS.forEach(function (split) {
+    var from = nationByIso[split.from];
+    var to = nationByIso[split.power];
+    if (from === undefined || to === undefined) return;
+    var moved = 0;
+    for (var c = 0; c < owner.length; c++) {
+      if (owner[c] !== from) continue;
+      var ll = unproject((c % GW) + 0.5, ((c / GW) | 0) + 0.5);
+      if (ll[0] < split.box[0] || ll[0] > split.box[2]) continue;
+      if (ll[1] < split.box[1] || ll[1] > split.box[3]) continue;
+      owner[c] = to;
+      moved++;
+    }
+    if (!moved) throw new Error('split "' + split.note + '" moved no ground — check its box');
+    console.log('    ' + split.note + ': ' + moved + ' cells ' + split.from + ' -> ' + split.power);
+  });
+
   var landCells = 0;
   for (var i = 0; i < owner.length; i++) {
     if (owner[i] >= 0) { nations[owner[i]].area++; landCells++; }
@@ -600,11 +681,33 @@ function main() {
   console.log('  raster: ' + landCells + ' land cells (' +
     (landCells / owner.length * 100).toFixed(1) + '% of the map)');
 
-  // 3. Allocate provinces per country by area, then grow them.
+  /*
+   * 3. Allocate provinces.
+   *
+   * Area alone is a bad measure of how much a country matters.  Under this
+   * projection Greenland is enormous and empty, which would hand Denmark more
+   * provinces than the German Empire.  Blending area with where people
+   * actually live gives the industrial heartlands the depth they need and
+   * leaves the ice and the deep desert as the thin frontiers they were.
+   */
   var TARGET_PROVINCES = 700;
+  var AREA_WEIGHT = 0.35;
   var totalArea = nations.reduce(function (a, n) { return a + n.area; }, 0);
   var perProvince = totalArea / TARGET_PROVINCES;
   var rng = new Rng(20260101);
+
+  nations.forEach(function (n) { n.cityPop = 0; });
+  var totalCityPop = 0;
+  citiesGeo.features.forEach(function (f) {
+    var cp = f.properties;
+    if (cp.latitude > LAT_MAX || cp.latitude < LAT_MIN) return;
+    var xy = project(cp.longitude, cp.latitude);
+    var ni = ownerNear(owner, Math.floor(xy[0]), Math.floor(xy[1]), 4);
+    if (ni < 0) return;
+    var pop = cp.pop_max || cp.pop_min || 0;
+    nations[ni].cityPop += pop;
+    totalCityPop += pop;
+  });
 
   for (i = 0; i < owner.length; i++) { /* index cells per nation */ }
   var cellsOf = nations.map(function () { return []; });
@@ -621,10 +724,15 @@ function main() {
   nations.forEach(function (nation, ni) {
     var cells = cellsOf[ni];
     if (!cells.length) { nation.dead = true; return; }
-    var want = clamp(Math.round(cells.length / perProvince), 1, 46);
+    var areaShare = cells.length / totalArea;
+    var popShare = totalCityPop > 0 ? nation.cityPop / totalCityPop : areaShare;
+    var share = AREA_WEIGHT * areaShare + (1 - AREA_WEIGHT) * popShare;
+    // The ceiling still matters: without it a single empire can swallow a
+    // sixth of the map's provinces and slow every per-province pass down.
+    var want = clamp(Math.round(TARGET_PROVINCES * share), 1, 110);
     var seeds = scatter(rng, cells, want);
     var domain = owner;
-    var made = growRegions(seeds, domain, ni, region, nextId, Math.max(6, perProvince * 0.12));
+    var made = growRegions(seeds, domain, ni, region, nextId, Math.max(6, perProvince * 0.12), MAX_ATTACH);
     for (var k = 0; k < made; k++) provinces.push({ nation: ni, cells: [], sea: false });
     nextId += made;
   });
@@ -633,7 +741,7 @@ function main() {
   if (disputedCells.length) {
     var dWant = clamp(Math.round(disputedCells.length / perProvince), 1, 12);
     var dSeeds = scatter(rng, disputedCells, dWant);
-    var dMade = growRegions(dSeeds, owner, -2, region, nextId, Math.max(6, perProvince * 0.12));
+    var dMade = growRegions(dSeeds, owner, -2, region, nextId, Math.max(6, perProvince * 0.12), MAX_ATTACH);
     for (var d = 0; d < dMade; d++) provinces.push({ nation: -1, cells: [], sea: false });
     nextId += dMade;
   }
@@ -690,6 +798,7 @@ function main() {
   var placed = [];                       // every city, for the nearest-match fallback
   var provPop = new Float64Array(provinces.length);     // summed city population
   var topCity = new Float64Array(provinces.length);     // largest city population
+  var byCityName = {};                   // city name -> where it sits, for capitals
   citiesGeo.features.forEach(function (f) {
     var p = f.properties;
     var lat = p.latitude, lon = p.longitude;
@@ -697,8 +806,14 @@ function main() {
     var xy = project(lon, lat);
     var cx = Math.floor(xy[0]), cy = Math.floor(xy[1]);
     if (cx < 0 || cy < 0 || cx >= GW || cy >= GH) return;
-    var rid = region[cy * GW + cx];
-    if (rid < 0 || provinces[rid].sea) return;
+    /*
+     * A coastal city's coordinates often land in a water cell at this raster
+     * resolution — Stockholm, Havana and Rio all do.  Dropping them would lose
+     * their population from the economy as well as their name, so look a few
+     * cells out for the shore they belong to.
+     */
+    var rid = landProvinceNear(region, provinces, cx, cy, 4);
+    if (rid < 0) return;
     var pop = p.pop_max || p.pop_min || 0;
     var name = p.name || p.nameascii;
     if (!name) return;
@@ -706,29 +821,46 @@ function main() {
     if (pop > topCity[rid]) topCity[rid] = pop;
     if (!cityOf[rid] || pop > cityOf[rid].pop) cityOf[rid] = { name: name, pop: pop };
     if (p.adm0cap === 1 && !capitalCityOf[rid]) capitalCityOf[rid] = { name: name, iso: p.adm0_a3, pop: pop };
+    [name, p.nameascii].forEach(function (key) {
+      if (!key) return;
+      if (!byCityName[key] || byCityName[key].pop < pop) byCityName[key] = { rid: rid, pop: pop, name: name };
+    });
     placed.push({ x: xy[0], y: xy[1], name: name, adm1: p.adm1name, nation: provinces[rid].nation });
   });
 
-  // Each nation's capital is the province holding its capital city, else its
-  // largest province.
+  /*
+   * A power's capital is the province holding the city it actually governed
+   * from — London for the British Empire, not Delhi or Ottawa, both of which
+   * are modern capitals inside the same territory.  Falls back to the largest
+   * province if the named city cannot be placed.
+   */
+  var capitalMisses = [];
   nations.forEach(function (nation, ni) {
+    var seat = byCityName[nation.capitalCity];
+    if (seat && provinces[seat.rid] && provinces[seat.rid].nation === ni) {
+      nation.capital = seat.rid;
+      cityOf[seat.rid] = { name: seat.name, pop: seat.pop };
+      return;
+    }
+    if (seat) capitalMisses.push(nation.name + ' (' + nation.capitalCity + ' fell outside its territory)');
+    else capitalMisses.push(nation.name + ' (' + nation.capitalCity + ' not in the gazetteer)');
     var best = -1, bestScore = -1;
     for (var pi = 0; pi < landProvinceCount; pi++) {
       if (provinces[pi].nation !== ni) continue;
-      var score = counts[pi];
-      var cap = capitalCityOf[pi];
-      if (cap) score += 1e6;
-      if (score > bestScore) { bestScore = score; best = pi; }
+      if (counts[pi] > bestScore) { bestScore = counts[pi]; best = pi; }
     }
     nation.capital = best;
-    if (best >= 0 && capitalCityOf[best]) cityOf[best] = capitalCityOf[best];
   });
+  if (capitalMisses.length) {
+    console.log('  ' + capitalMisses.length + ' capitals fell back to the largest province:');
+    capitalMisses.forEach(function (m) { console.log('    ' + m); });
+  }
 
   var namesUsed = Object.create(null);
   var unnamed = 0;
   provinces.forEach(function (prov, pi) {
     if (prov.sea) { prov.name = ''; return; }
-    var base = cityOf[pi] ? cityOf[pi].name : null;
+    var base = cityOf[pi] ? (Era.PERIOD_NAMES[cityOf[pi].name] || cityOf[pi].name) : null;
     if (!base) {
       // No city inside: borrow the administrative region of the nearest city
       // in the same country, which is still a real place name.
@@ -740,8 +872,8 @@ function main() {
         var dd = dx * dx + dy * dy;
         if (dd < nearD) { nearD = dd; near = placed[ci]; }
       }
-      base = near && near.adm1 ? near.adm1
-        : near ? near.name + ' Territory'
+      base = near && near.adm1 ? (Era.PERIOD_NAMES[near.adm1] || near.adm1)
+        : near ? (Era.PERIOD_NAMES[near.name] || near.name) + ' Territory'
           : (prov.nation >= 0 ? nations[prov.nation].name : 'Disputed') + ' Marches';
       unnamed++;
     }
@@ -769,6 +901,7 @@ function main() {
 
   // 8. Trace, simplify, encode.
   verifyCapitals(nations, provinces, region, landProvinceCount);
+  verifySpans(nations, provinces, landProvinceCount, minX, minY, maxX, maxY);
 
   console.log('  tracing boundaries…');
   var traced = traceBoundaries(region, provinces.length, 0.9);
@@ -793,19 +926,43 @@ function main() {
  * A spot check that the raster, the province split and the nation table all
  * agree: these cities must land inside a province owned by this country.
  */
+/*
+ * Spot checks on the 1914 composition.  These cities must sit inside the power
+ * that actually held them, which exercises the territory table, the frontier
+ * splits and the raster all at once.  Warsaw, Poznan and Lviv are the
+ * interesting ones: they check that partitioned Poland was carved correctly.
+ */
 var CAPITAL_CHECKS = [
-  ['France', 2.35, 48.86], ['Germany', 13.40, 52.52], ['Japan', 139.69, 35.69],
-  ['Brazil', -47.93, -15.78], ['Egypt', 31.24, 30.04], ['India', 77.21, 28.61],
-  ['China', 116.40, 39.90], ['United States', -77.04, 38.91], ['Australia', 149.13, -35.28],
-  ['Russia', 37.62, 55.75], ['Nigeria', 7.49, 9.06], ['Mexico', -99.13, 19.43],
-  ['Kazakhstan', 71.43, 51.16], ['Chile', -70.65, -33.44], ['Norway', 10.75, 59.91]
+  ['France', 2.35, 48.86],                   // Paris
+  ['German Empire', 13.40, 52.52],           // Berlin
+  ['German Empire', 7.75, 48.58],            // Strasbourg, in Alsace-Lorraine
+  ['German Empire', 16.93, 52.41],           // Poznan, in Prussian Poland
+  ['Austria-Hungary', 16.37, 48.21],         // Vienna
+  ['Austria-Hungary', 14.42, 50.09],         // Prague, in Bohemia
+  ['Austria-Hungary', 24.03, 49.84],         // Lviv, in Galicia
+  ['Austria-Hungary', 23.60, 46.77],         // Cluj, in Transylvania
+  ['Russian Empire', 21.01, 52.23],          // Warsaw, in Congress Poland
+  ['Russian Empire', 30.32, 59.94],          // Petrograd
+  ['Russian Empire', 24.75, 59.44],          // Reval, in the Baltic provinces
+  ['Ottoman Empire', 28.98, 41.01],          // Constantinople
+  ['Ottoman Empire', 44.36, 33.31],          // Baghdad, in Mesopotamia
+  ['British Empire', -0.13, 51.51],          // London
+  ['British Empire', 77.21, 28.61],          // Delhi
+  ['British Empire', 31.24, 30.04],          // Cairo
+  ['Empire of Japan', 139.69, 35.69],        // Tokyo
+  ['Empire of Japan', 126.98, 37.57],        // Seoul, annexed in 1910
+  ['Belgium', 15.31, -4.32],                 // Leopoldville, in the Congo
+  ['Netherlands', 106.83, -6.18],            // Batavia, in the East Indies
+  ['United States', -77.04, 38.91],          // Washington
+  ['Serbia', 20.47, 44.80],                  // Belgrade
+  ['Brazil', -43.20, -22.91]                 // Rio de Janeiro
 ];
 
 function verifyCapitals(nations, provinces, region, landCount) {
   var bad = [];
   CAPITAL_CHECKS.forEach(function (row) {
     var xy = project(row[1], row[2]);
-    var rid = region[Math.floor(xy[1]) * GW + Math.floor(xy[0])];
+    var rid = landProvinceNear(region, provinces, Math.floor(xy[0]), Math.floor(xy[1]), 4);
     if (rid < 0 || rid >= landCount) { bad.push(row[0] + ': not on land'); return; }
     var ni = provinces[rid].nation;
     var got = ni >= 0 ? nations[ni].name : 'neutral';
@@ -813,6 +970,35 @@ function verifyCapitals(nations, provinces, region, landCount) {
   });
   if (bad.length) throw new Error('capital placement check failed —\n    ' + bad.join('\n    '));
   console.log('  ' + CAPITAL_CHECKS.length + ' capital cities verified in the right country');
+}
+
+/*
+ * A province has to be somewhere.
+ *
+ * Islands the region growth cannot walk to used to be handed to whichever
+ * region lay nearest, with no limit on how far that was — which quietly built
+ * provinces spanning half the world, and put Copenhagen off the coast of
+ * Iceland.  Nothing downstream noticed: the province belonged to the right
+ * country, so the capital checks passed.  The longest legitimate province is
+ * Chile at about 100 map units, so anything half again as long is a fault.
+ */
+var MAX_PROVINCE_SPAN = 150;
+
+function verifySpans(nations, provinces, landCount, minX, minY, maxX, maxY) {
+  var bad = [];
+  for (var p = 0; p < landCount; p++) {
+    var w = (maxX[p] - minX[p]) / SUB, h = (maxY[p] - minY[p]) / SUB;
+    var span = Math.sqrt(w * w + h * h);
+    if (span <= MAX_PROVINCE_SPAN) continue;
+    var ni = provinces[p].nation;
+    bad.push((provinces[p].name || 'province ' + p) + ' (' +
+      (ni >= 0 ? nations[ni].name : 'neutral') + ') spans ' + span.toFixed(0) + ' map units');
+  }
+  if (bad.length) {
+    throw new Error('province span check failed — these reach across open sea:\n    ' +
+      bad.join('\n    '));
+  }
+  console.log('  no province spans more than ' + MAX_PROVINCE_SPAN + ' map units');
 }
 
 /**
@@ -849,6 +1035,37 @@ function validateLoops(traced, regionCount) {
     }
   }
   console.log('  ' + checked + ' outlines validated as closed');
+}
+
+/** The nation owning the nearest land cell to a grid point, or -1. */
+function ownerNear(owner, cx, cy, maxRadius) {
+  for (var r = 0; r <= maxRadius; r++) {
+    for (var dy = -r; dy <= r; dy++) {
+      for (var dx = -r; dx <= r; dx++) {
+        if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+        var x = cx + dx, y = cy + dy;
+        if (x < 0 || y < 0 || x >= GW || y >= GH) continue;
+        if (owner[y * GW + x] >= 0) return owner[y * GW + x];
+      }
+    }
+  }
+  return -1;
+}
+
+/** The nearest land province to a grid point, searched in widening rings. */
+function landProvinceNear(region, provinces, cx, cy, maxRadius) {
+  for (var r = 0; r <= maxRadius; r++) {
+    for (var dy = -r; dy <= r; dy++) {
+      for (var dx = -r; dx <= r; dx++) {
+        if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue;   // ring only
+        var x = cx + dx, y = cy + dy;
+        if (x < 0 || y < 0 || x >= GW || y >= GH) continue;
+        var id = region[y * GW + x];
+        if (id >= 0 && !provinces[id].sea) return id;
+      }
+    }
+  }
+  return -1;
 }
 
 function roman(n) {
@@ -927,7 +1144,7 @@ function emit(d) {
    */
   var nationRows = d.nations.map(function (n, i) {
     return {
-      iso: n.iso, name: n.name, colour: d.colours[i],
+      iso: n.iso, name: n.name, colour: d.colours[i], bloc: n.bloc || 'neutral',
       capital: n.capital === undefined ? -1 : n.capital, pop: Math.round(n.pop)
     };
   });
@@ -943,8 +1160,8 @@ function emit(d) {
     ' */\n' +
     '(function (global) {\n' +
     "  'use strict';\n" +
-    '  global.SWW = global.SWW || {};\n' +
-    '  global.SWW.WorldMap = {\n' +
+    '  global.IA = global.IA || {};\n' +
+    '  global.IA.WorldMap = {\n' +
     '    mapW: ' + MAP_W + ', mapH: ' + MAP_H + ', sub: ' + SUB + ',\n' +
     '    latMax: ' + LAT_MAX + ', latMin: ' + LAT_MIN + ',\n' +
     '    landProvinceCount: ' + d.landProvinceCount + ',\n' +

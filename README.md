@@ -1,11 +1,12 @@
-# Supremacy: World War III
+# Iron Accord
 
-A real-time global strategy game in the browser, played on a map of the real
-world. You take one of 189 countries — with its actual borders, actual
-neighbours and actual cities — build an economy, raise an army, and fight for
-control of the map. No build step, no dependencies: open `index.html` and play.
+A real-time grand-strategy game of the Great War, played in the browser on a map
+of the world as it stood in 1914. You take one of 54 powers — with its real
+borders, its real neighbours and its real cities — mobilise an economy, raise an
+army, and fight the war out. No build step, no dependencies: open `index.html`
+and play.
 
-![the world map](tools/shots/world-map.png)
+![the world in 1914](tools/shots/world-map.png)
 
 ## Running it
 
@@ -17,48 +18,58 @@ xdg-open index.html            # or double-click the file
 npx http-server . -p 8080
 ```
 
-Everything is plain ES5-compatible JavaScript loaded with `<script>` tags, so
-it runs straight from `file://`.
+Everything is plain ES5-compatible JavaScript loaded with `<script>` tags, so it
+runs straight from `file://`.
 
 ## The map
 
 Borders are real. The map is compiled from [Natural
 Earth](https://www.naturalearthdata.com/) 1:50m admin-0 countries and lakes,
-projected with the Miller cylindrical projection and cut into **642 land
-provinces and 171 sea zones** across **189 playable countries**. Antarctica is
-omitted; the map runs from 83°N to 60°S.
+projected with the Miller cylindrical projection and cut into **720 land
+provinces and 175 sea zones** across **54 powers**. Antarctica is omitted; the
+map runs from 83°N to 60°S.
 
-- **National borders are the source data**, rasterised at ~5 km and traced back
-  into vector outlines, so France is France-shaped and the Great Lakes, the
-  Caspian and Lake Victoria are all there.
-- **Provinces** are generated inside each country, sized so that a country gets
-  roughly one province per equal area of land — Russia has 53, Mongolia 8,
-  Kuwait 1. A province never crosses a national border.
-- **Province names are real cities**: 552 of the 642 are named after the largest
-  Natural Earth populated place inside them, and the rest after the
-  administrative region of the nearest one. Capitals are the real capitals.
+![Europe in 1914](tools/shots/europe-1914.png)
+
+- **1914 is composed from modern borders.** Natural Earth ships today's world,
+  so `tools/era1914.js` maps each of 172 modern countries onto the power that
+  held it — Bohemia and Croatia to Austria-Hungary, Finland and Poland to
+  Russia, Korea to Japan, the Congo to Belgium — and then carves seven frontiers
+  that ran through a modern country rather than around it: Posen and Silesia,
+  Galicia, Alsace-Lorraine, Transylvania, Trentino and Trieste, the Hejaz, and
+  Kaiser-Wilhelmsland. Each carve is a longitude/latitude box scoped to the
+  country it takes from, so it cannot bleed into a neighbour, and the build
+  fails if one of them moves no ground.
+- **Provinces** are generated inside each power, sized by a blend of area and
+  where people actually live. Area alone would hand Denmark more provinces than
+  the German Empire, because Greenland is enormous under this projection and
+  Silesia is not. A province never crosses a national border.
+- **Province names are real cities** — 640 of the 720 — under the names they
+  went by at the time: Constantinople, Petrograd, Christiania, Lemberg.
 - **Population is real too**, taken from the city data and compressed onto a
-  playable scale, so Bengal and the Ruhr are worth fighting over and Siberia is
+  playable scale, so the Ruhr and Bengal are worth fighting over and Siberia is
   worth crossing.
-- **Territories fold into their sovereign** the way a political world map shows
-  them (Greenland with Denmark, Guam with the United States). Areas Natural
-  Earth marks as disputed or indeterminate belong to nobody and can be claimed.
 - **Colours are graph-coloured** over the country adjacency graph, maximising
-  hue distance, so no two countries that share a border look alike.
+  hue distance, so no two powers that share a border look alike.
 
-`src/data/worldmap.js` (221 KB) is committed, so nothing is downloaded at play
-time. To rebuild it — after changing the province count, the projection, or the
-source data — run `npm run build:map`, which fetches and caches the Natural
-Earth files into `tools/geodata/`.
+`src/data/worldmap.js` (208 KB) is committed, so nothing is downloaded at play
+time. To rebuild it — after changing the province count, the projection, the
+1914 composition, or the source data — run `npm run build:map`, which fetches
+and caches the Natural Earth files into `tools/geodata/`.
 
 ## How the game works
 
-**Economy.** Every province farms and pays tax; its deposit yields one of
-materials, fuel or chemicals, following real geography — the Gulf, West Siberia
-and Texas produce oil. Ammunition only exists if you build arms factories, which
-burn materials and chemicals to make it. Population, morale, industry level and
-distance from your capital all feed into output. Run out of food or cash and
-your units start to come apart.
+**The alliances of 1914 are already in place.** Every power belongs to the
+Central Powers, the Entente, or the neutrals; the two blocs start at war with
+each other and allied within themselves, and the neutrals start out of it with
+their own opinions to form.
+
+**Economy.** Every province farms and pays tax, and its deposit yields grain,
+timber, coal, iron or oil following real geography. Shells are not a deposit:
+they exist only if you build the works to make them, and those burn iron and
+coal to do it. Population, morale, industry and distance from your capital all
+feed into output. Manpower is finite and conscription is a technology. Run short
+of grain or money and your army comes apart in the field.
 
 **Terrain and climate** follow the real world: the Sahara and the Gobi are
 desert, the Amazon and the Congo are jungle, Siberia and northern Canada are
@@ -71,28 +82,31 @@ Low morale cuts both production and combat strength.
 
 **Combat** resolves every game hour. Stacks sharing a province exchange fire;
 damage depends on what the target force is made of (infantry, armour, air,
-naval), the defender's matching defence stat, terrain, entrenchment, bunkers,
-research, and how much ammunition you have left. Artillery, SAMs, destroyers and
-carriers bombard a neighbouring province without entering it. Shattered stacks
-withdraw rather than evaporate. Holding hostile ground unopposed runs down an
-occupation timer, and then the province changes hands.
+naval), the defender's matching defence stat, terrain, entrenchment,
+fortifications, research, and how many shells you have left. Artillery bombards
+a neighbouring province without entering it, and siege guns reach further still.
+Shattered stacks withdraw rather than evaporate. Holding hostile ground
+unopposed runs down an occupation timer, and then the province changes hands.
 
 **Movement** is time-based pathfinding over the province graph — Dijkstra
 weighted by travel hours, which depend on unit speed, terrain and doctrine. You
 cannot march through a country you are at peace with: get a war, an alliance, or
 go around. Land forces crossing a sea zone are transports, fast to sink and
-unable to fight. Aircraft away from an airbase or carrier bleed fuel.
+unable to fight. Aircraft away from an aerodrome run out of fuel.
 
 **Diplomacy** tracks a relation value and a treaty state (peace, non-aggression,
-alliance, war) per pair, but only between countries that actually share a
-border or already have history — Chile has no opinion about Laos until they
-meet. The AI weighs relations, relative power and how many fronts it is already
-fighting on. Declaring war costs you standing with the neighbours and drags the
-victim's allies in. Nobody declares war in the first three days.
+alliance, war) per pair, but only between powers that share a border or already
+have history. The AI weighs relations, relative power and how many fronts it is
+already fighting on. Declaring war costs you standing with the neighbours and
+drags the victim's allies in.
 
-**Research** is a 25-tech tree across six branches that unlocks units and grants
-flat bonuses. **The market** is a live exchange where prices mean-revert, drift
-hourly, and move against large orders.
+**Research** is a 28-technology tree across eight branches — infantry, artillery,
+armour, air, naval, industry, logistics and the home front — that unlocks units
+and grants flat bonuses. It follows the war's own arc: everyone starts able to
+raise infantry and dig in, and the things that break a stalemate (infiltration,
+siege guns, landships, aviation) are deliberately expensive and late.
+**The market** is a live exchange where prices mean-revert, drift hourly, and
+move against large orders.
 
 **Winning** means holding a third of the world's victory points, or outlasting
 everyone else. It is a long war.
@@ -108,8 +122,8 @@ everyone else. It is a long war.
 | Game speed | 1, 2, 3 |
 | Cancel targeting or close | escape |
 
-Select one of your stacks and use **Move**, **Attack**, **Bombard** or
-**Launch**, then tap the target province.
+Select one of your stacks and use **Move**, **Attack** or **Bombard**, then tap
+the target province.
 
 ## Layout
 
@@ -122,13 +136,15 @@ src/engine/           seeded RNG, helpers, map decoder, per-game world setup
 src/game/             simulation: state, economy, combat, orders, diplomacy, AI,
                       market, the hourly loop, save/load
 src/ui/               canvas map renderer and the DOM interface
+tools/era1914.js      who held what in 1914, and what it was called then
 tools/buildmap.js     the map compiler
-tools/                test harnesses
+tools/                test harnesses and the screenshot tool
 ```
 
 The simulation never touches the DOM, and the UI mutates the world only through
-`SWW.orders`, `SWW.diplomacy` and `SWW.market` — the same entry points the AI
-uses, so the player and the opponents play by identical rules.
+`IA.orders`, `IA.diplomacy` and `IA.market` — the same entry points the AI uses,
+so the player and the opponents play by identical rules. Keeping the simulation
+DOM-free is also what would let it move to a server later without a rewrite.
 
 Saves store only what the war changed. Geography comes from the compiled map and
 terrain is a pure function of the seed, so loading rebuilds the world and
@@ -137,30 +153,43 @@ replays the diff onto it.
 ### Rendering
 
 Province outlines are real vector paths, so borders stay crisp at any zoom.
-Drawing 800 of them every frame is too slow with the whole world on screen, so
-the renderer has two modes: zoomed out it blits a cached raster of the political
-map, repainted only around provinces that actually change hands; zoomed in it
-draws vectors with bounding-box culling. Both use the same colours and line
-weights, so crossing the threshold is not noticeable.
+Drawing seven hundred of them every frame is too slow with the whole world on
+screen, so the renderer has two modes: zoomed out it blits a cached raster of
+the political map, repainted only around provinces that actually change hands;
+zoomed in it draws vectors with bounding-box culling. Both use the same colours
+and line weights, so crossing the threshold is not noticeable.
 
 Provinces are not flat colour. Each terrain type has a tiling pattern — ridges
 for mountains, canopy for forest, dunes for desert, a street grid for cities —
 laid over the national colour, with the pattern transform keeping the texture a
 constant size on screen at any zoom. Coastlines get a band of pale shelf water,
 borders are light on dark (thin between provinces, heavy between nations), and
-country names are set across the map in atlas style: biggest first, with any
-label that would collide with one already placed simply dropped. City dots and
-stack markers thin out as the view widens so the world view stays legible.
+country names are set across the map in atlas style: biggest first, any label
+that would collide with one already placed simply dropped, and none allowed to
+run wider than the land it names. A country is named once per connected block of
+territory rather than once overall — an empire's area-weighted centre is nowhere
+near its homeland, which is how you end up with FRANCE written across the Sahara
+— and the block holding the capital is always named however small it is.
 
-**Smoothness.** Those terrain patterns are by far the most expensive thing the
-renderer draws — measured on a phone viewport they alone took panning from 60
-to 30 frames a second. Two things keep the map fluid:
+**Smoothness.** Stroking the borders and the coastal shelf is by far the most
+expensive thing on screen: measured at a phone viewport it is about seventeen
+milliseconds a frame at a continental zoom, which is the entire 60 fps budget.
+Almost none of it changes between frames, so the ground is kept in a layer the
+size of the viewport and each frame only reconciles that layer with where the
+camera now is — nothing to do when the map is still, and when it is being
+dragged, scroll the layer by whole device pixels and repaint only the strip that
+has come into view, a few percent of the screen. A new zoom, a resize or a
+province changing hands repaints the lot.
+
+Three other things keep it fluid:
 
 - the canvas is capped at 2× pixel density, because phones report 3× and above
-  and the extra pixels cost triple the fill rate for a difference nobody can
-  see on a map in motion;
-- terrain detail stands down while the view is moving and fades back in 90 ms
-  after it settles, so a drag is cheap and a stationary map is fully detailed.
+  and the extra pixels cost triple the fill rate for a difference nobody can see
+  on a map in motion;
+- terrain texture is a second layer, so it fades in over a still map by changing
+  an alpha rather than by redrawing anything;
+- terrain detail stands down entirely while the view is moving and fades back in
+  90 ms after it settles.
 
 Dragging also has momentum: a flick keeps coasting and decays to a stop instead
 of stopping dead under your finger.
@@ -173,32 +202,42 @@ npm test                       # all three suites
 node tools/simtest.js 80       # headless: run 80 game days, assert invariants
 node tools/uitest.js           # headless Chromium: click through every screen
 node tools/perftest.js         # headless Chromium: frame times on a phone
+node tools/hero.js [europe]    # regenerate the README map images
 ```
 
 `simtest` builds a world, runs it forward with no player input, and checks every
 hour that stacks stand on real provinces, hit points stay within bounds, naval
-units stay at sea, resources stay finite and non-negative, and province
-ownership records agree with the provinces themselves. It also asserts the map
-is really the real world — that France is called France and holds Paris, that
-Japan holds Tokyo — then round-trips a save and confirms both copies evolve
+units stay at sea, resources stay finite and non-negative, and province ownership
+records agree with the provinces themselves. It also asserts the map is really
+the 1914 world, then round-trips a save and confirms both copies evolve
 identically.
 
-`uitest` loads the page in Chromium, starts a game as Mongolia, issues a move
-order, confirms an army is refused entry to a neighbour it is at peace with,
-declares war through the confirmation dialog and checks the treaty really
-changed, opens every screen, runs the clock at 16×, round-trips a save, checks
-the desktop layout for horizontal overflow, and fails on any console error.
-Screenshots land in `tools/shots/`.
+`uitest` loads the page in Chromium, starts a game, issues a move order, confirms
+an army is refused entry to a neighbour it is at peace with, declares war through
+the confirmation dialog and checks the treaty really changed, opens every screen,
+runs the clock at 16×, round-trips a save, checks the desktop layout for
+horizontal overflow, and fails on any console error. It also drags the map 120
+times and compares the scrolled layer against a repaint of the same view from
+scratch, which is the only way a seam or a band of stale ground in the scrolling
+renderer would ever be noticed. Screenshots land in `tools/shots/`.
 
-`perftest` runs the game at a 390x844 phone viewport at 3x pixel density with
-the clock at 16x, samples real frame deltas at four zoom levels including a
-continuous pan, and fails if more than 2% of frames missed the 60 fps budget.
-It measures the dropped-frame rate rather than an average, because an average
-hides exactly the stutter a player notices.
+`perftest` runs the game at a 390x844 phone viewport at 3x pixel density with the
+clock at 16x and samples real frame deltas at four zoom levels including a
+continuous pan. It fails on the **median** frame time rather than an average or a
+drop count: across repeated runs on a shared machine the median is immovable
+while the tail wanders with the host scheduler, and the regression this file was
+written to catch sat at 33 ms — a doubling no amount of averaging could hide.
 
-`buildmap` checks itself too: it verifies fifteen real capitals land inside a
-province owned by the right country, that every traced province outline is a
-closed chain, and that the coordinate encoder round-trips exactly.
+`buildmap` checks itself too. It verifies that 23 real cities land inside a
+province held by the right power in 1914 — Warsaw Russian, Poznan German, Lviv
+Austrian, Leopoldville Belgian — that a frontier carve which moves no ground is
+an error rather than a silent no-op, that every traced province outline is a
+closed chain, that the coordinate encoder round-trips exactly, and that no
+province spans more than 150 map units. That last one exists because islands the
+region growth cannot walk to used to be handed to whichever region lay nearest
+with no limit on distance, which built provinces reaching across oceans and put
+Copenhagen off the coast of Iceland — and every other check passed, because the
+province did belong to Denmark.
 
 ## Tuning
 
@@ -209,8 +248,10 @@ Most of the feel lives in a few constants:
 | How fast stacks melt | `DAMAGE_SCALE` in `src/game/combat.js` |
 | How long conquest takes | `captureHours` in `src/game/combat.js` |
 | Resource yields | `DEPOSIT_RATE`, `FARM_RATE`, `CASH_RATE` in `src/game/economy.js` |
+| Starting stockpiles | `START_RESOURCES` in `src/game/state.js` |
 | Population compression | `gamePop` in `src/engine/worldgen.js` |
 | Climate and relief | the lon/lat boxes in `src/engine/worldgen.js` |
+| Who held what in 1914 | `HELD_BY` and `SPLITS` in `tools/era1914.js` (then rebuild) |
 | Province count | `TARGET_PROVINCES` in `tools/buildmap.js` (then rebuild) |
 | Victory threshold | `victoryVP` in `src/game/state.js` |
 | Real seconds per game hour | `SPEEDS` in `src/game/state.js` |
@@ -218,5 +259,12 @@ Most of the feel lives in a few constants:
 ## Data and attribution
 
 Map data © [Natural Earth](https://www.naturalearthdata.com/), public domain.
-Country borders, names and status follow that dataset's conventions; disputed
-and indeterminate areas are left unclaimed rather than assigned to a side.
+Modern borders, names and status follow that dataset's conventions; the 1914
+composition on top of them is this project's own, and is a playable
+approximation rather than a scholarly one. Frontiers that were contested at the
+time are drawn one way so the game has an answer, not because the question was
+settled.
+
+Iron Accord is an original game. The name, artwork, icons, interface, unit and
+technology tables, map and code are its own, and it is not affiliated with or
+derived from the assets of any commercial title.

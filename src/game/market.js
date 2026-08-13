@@ -5,11 +5,12 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var clamp = SWW.util.clamp;
+  var IA = global.IA = global.IA || {};
+  var clamp = IA.util.clamp;
 
+  /* Wartime prices: grain is cheap and plentiful, oil scarce, shells dear. */
   var BASE_PRICE = {
-    manpower: 4.2, food: 1.9, materials: 3.1, fuel: 4.0, ammo: 5.2, chemicals: 6.4
+    manpower: 4.2, grain: 1.7, timber: 2.2, coal: 2.6, iron: 3.4, oil: 6.0, shells: 5.4
   };
   var TRADED = Object.keys(BASE_PRICE);
   var SPREAD = 0.06;        // half-spread around the mid price
@@ -56,20 +57,20 @@
     m.prices[res] = clamp(m.prices[res] * factor, m.base[res] * 0.35, m.base[res] * 3.2);
   }
 
-  /** Spend cash to receive `amount` of `res`. */
+  /** Spend money to receive `amount` of `res`. */
   function buy(state, nation, res, amount) {
     if (!TRADED.length || BASE_PRICE[res] === undefined) return { ok: false, why: 'Not traded' };
     amount = Math.max(0, Math.round(amount));
     if (amount <= 0) return { ok: false, why: 'Nothing to buy' };
     var cost = quoteBuy(state, res, amount);
-    if (nation.resources.cash < cost) return { ok: false, why: 'Not enough cash' };
-    nation.resources.cash -= cost;
+    if (nation.resources.money < cost) return { ok: false, why: 'Not enough money' };
+    nation.resources.money -= cost;
     nation.resources[res] += amount;
     impact(state, res, amount * 0.6);
     return { ok: true, cost: cost };
   }
 
-  /** Sell `amount` of `res` for cash. */
+  /** Sell `amount` of `res` for money. */
   function sell(state, nation, res, amount) {
     if (BASE_PRICE[res] === undefined) return { ok: false, why: 'Not traded' };
     amount = Math.max(0, Math.round(amount));
@@ -77,12 +78,12 @@
     if (nation.resources[res] < amount) return { ok: false, why: 'Not enough ' + res };
     var gain = quoteSell(state, res, amount);
     nation.resources[res] -= amount;
-    nation.resources.cash += gain;
+    nation.resources.money += gain;
     impact(state, res, -amount * 0.6);
     return { ok: true, gain: gain };
   }
 
-  SWW.market = {
+  IA.market = {
     init: init, tick: tick, buy: buy, sell: sell,
     buyPrice: buyPrice, sellPrice: sellPrice,
     quoteBuy: quoteBuy, quoteSell: quoteSell,

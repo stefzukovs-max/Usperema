@@ -5,12 +5,12 @@
 (function (global) {
   'use strict';
 
-  var SWW = global.SWW = global.SWW || {};
-  var UnitData = SWW.UnitData;
+  var IA = global.IA = global.IA || {};
+  var UnitData = IA.UnitData;
 
   var START_RESOURCES = {
-    manpower: 5300, food: 14000, materials: 11000, fuel: 5300,
-    ammo: 4000, chemicals: 3900, cash: 53000, gold: 57
+    manpower: 5300, grain: 14000, timber: 7000, coal: 6000,
+    iron: 9000, oil: 3000, shells: 4000, money: 45000, gold: 57
   };
 
   /*
@@ -36,8 +36,8 @@
   function createGame(opts) {
     opts = opts || {};
     var seed = opts.seed != null ? opts.seed : String(Date.now());
-    var rng = new SWW.RNG(seed);
-    var world = SWW.worldgen.generate(rng, opts.world);
+    var rng = new IA.RNG(seed);
+    var world = IA.worldgen.generate(rng, opts.world);
 
     var state = {
       seed: String(seed),
@@ -99,26 +99,52 @@
       n = state.nations[i];
       var size = n.provinces.length;
       var capitalStack = size >= 6 ? 3 : size >= 3 ? 2 : 1;
-      spawnArmy(state, n.id, n.capitalProvince, [{ typeId: 'infantry', count: capitalStack }]);
+      spawnArmy(state, n.id, n.capitalProvince, [{ typeId: 'line_infantry', count: capitalStack }]);
       var owned = n.provinces.filter(function (id) { return id !== n.capitalProvince; });
       rng.shuffle(owned);
       var garrisons = Math.round(owned.length * 0.35);
       for (var g = 0; g < garrisons; g++) {
-        spawnArmy(state, n.id, owned[g], [{ typeId: 'infantry', count: 1 }]);
+        spawnArmy(state, n.id, owned[g], [{ typeId: 'line_infantry', count: 1 }]);
       }
     }
 
-    SWW.market.init(state, rng);
+    openingDiplomacy(state);
+    IA.market.init(state, rng);
     recomputeVP(state);
     // Taking a third of the world's victory points is already a colossal war;
     // outlasting everyone else is the other way to win.
     state.victoryVP = Math.round(state.totalVP * 0.33);
-    SWW.diplomacy.refreshContacts(state);
+    IA.diplomacy.refreshContacts(state);
     state.rngState = rng.s;
 
     pushLog(state, 'world', 'The war begins. ' + state.nationById[playerId].name +
       ' mobilises as tensions collapse into open conflict.');
     return state;
+  }
+
+  /*
+   * The alliances of August 1914 are already signed and the shooting has
+   * started.  Members of a bloc are allied to each other and at war with the
+   * opposing bloc; everyone else begins neutral and can be courted or invaded.
+   */
+  function openingDiplomacy(state) {
+    var i, j;
+    for (i = 0; i < state.nations.length; i++) {
+      var a = state.nations[i];
+      if (a.bloc === 'neutral') continue;
+      for (j = i + 1; j < state.nations.length; j++) {
+        var b = state.nations[j];
+        if (b.bloc === 'neutral') continue;
+        if (a.bloc === b.bloc) {
+          IA.diplomacy.setTreaty(state, a.id, b.id, 'alliance');
+          IA.diplomacy.setRelation(state, a.id, b.id, 65);
+        } else {
+          IA.diplomacy.setTreaty(state, a.id, b.id, 'war');
+          IA.diplomacy.setRelation(state, a.id, b.id, -70);
+        }
+      }
+    }
+    IA.diplomacy.refreshWarCounts(state);
   }
 
   /** Create an army stack; `groups` is [{typeId, count}]. */
@@ -163,7 +189,7 @@
       : dominant.cat === 'arm' ? 'Armoured Battalion'
         : dominant.cat === 'air' ? 'Air Wing'
           : dominant.cat === 'sea' ? 'Naval Squadron'
-            : dominant.id === 'artillery' ? 'Artillery Regiment'
+            : dominant.range > 0 ? 'Artillery Regiment'
               : 'Infantry Battalion';
     return ordinals[idx] + ' ' + kind;
   }
@@ -300,7 +326,7 @@
     if (state.log.length > 400) state.log.length = 400;
   }
 
-  SWW.state = {
+  IA.state = {
     createGame: createGame, spawnArmy: spawnArmy, province: province, nation: nation,
     armiesIn: armiesIn, allArmiesAt: allArmiesAt, armiesOf: armiesOf, armyById: armyById,
     armyStrength: armyStrength, armyPower: armyPower, nationPower: nationPower,
