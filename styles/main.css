@@ -630,3 +630,18 @@ input { font: inherit; }
 }
 .setting-opt.on { border-color: var(--accent); background: rgba(200,162,74,.16); color: var(--accent-2); }
 .settings-foot { margin-top: 10px; }
+
+/* The opening lesson: a card over the map, never blocking it. */
+.tutorial {
+  display: none; position: absolute; left: 10px; right: 10px; bottom: 12px;
+  background: linear-gradient(180deg, rgba(44,42,31,.97), rgba(29,28,20,.97));
+  border: 1px solid var(--accent); border-left-width: 3px; border-radius: var(--radius);
+  padding: 11px 13px; z-index: 30; box-shadow: 0 6px 22px rgba(0,0,0,.5);
+  max-width: 520px; margin: 0 auto;
+}
+.tutorial.show { display: block; }
+.tut-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.tut-title { font-weight: 700; letter-spacing: .04em; }
+.tut-count { font-size: 11px; color: var(--dim); white-space: nowrap; }
+.tut-text { font-size: 13px; line-height: 1.5; color: var(--text); margin: 6px 0 9px; }
+.tut-actions { display: flex; gap: 8px; justify-content: flex-end; }

@@ -259,6 +259,8 @@
       }
       overlay.classList.remove('show');
       enterGame(state);
+      // A fresh campaign offers the lesson; a loaded one does not.
+      IA.tutorial.offer(IA.UI);
     }, 30);
   }
 

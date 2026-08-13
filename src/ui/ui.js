@@ -1225,6 +1225,7 @@
    */
   UI.buildWarAims = function () {
     var state = this.state;
+    this.sawWarAims = true;
     var me = state.nationById[state.playerId];
     var wrap = el('div', { class: 'aims' });
     var leader = null;
@@ -1545,6 +1546,14 @@
       volRow
     ]));
     wrap.appendChild(el('button', {
+      class: 'ghost wide',
+      text: IA.tutorial.isActive() ? 'Stop the tutorial' : 'Run the tutorial',
+      onclick: function () {
+        if (IA.tutorial.isActive()) IA.tutorial.stop(true);
+        else { IA.tutorial.start(self); self.closeModal(); }
+      }
+    }));
+    wrap.appendChild(el('button', {
       class: 'ok-btn wide', text: 'Save game',
       onclick: function () {
         var r = IA.save.save(state);
@@ -1702,6 +1711,7 @@
     this.refreshHud();
     this.drainLog();
     this.drainSounds();
+    IA.tutorial.frame(this.state, this);
     if (this.state.gameOver) this.showGameOver();
     this.renderer.draw(this);
     if (this.panelStale()) this.renderPanel();

@@ -183,6 +183,97 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
       'the cue queue drains, and volume reaches the master gain');
   }
 
+  /*
+   * The tutorial.
+   *
+   * The claim being tested is that it watches the real game rather than a
+   * script: each step is satisfied by doing the thing through the ordinary
+   * game code, and the lesson must move on by itself. Nothing here tells the
+   * tutorial it has advanced.
+   */
+  var tut = await page.evaluate(async function () {
+    var ui = IA.UI, s = IA.game.current;
+    var me = s.nationById[s.playerId];
+    function step() { return IA.tutorial.steps()[IA.tutorial.stepIndex()].id; }
+    function settle() { return new Promise(function (r) { setTimeout(r, 60); }); }
+
+    IA.tutorial.start(ui);
+    var seen = [step()];
+    if (!document.querySelector('#tutorial.show')) return { error: 'the card did not appear' };
+
+    // 1. Select the capital, the ordinary way.
+    ui.selectProvince(me.capitalProvince);
+    await settle();
+    seen.push(step());
+
+    // 2. Queue a building through the real order path.
+    var home = s.provinces[me.capitalProvince];
+    me.resources.money += 200000;
+    me.resources.timber += 20000;
+    me.resources.iron += 20000;
+    IA.orders.startConstruction(s, home, 'barracks');
+    await settle();
+    seen.push(step());
+
+    // 3. Start a technology.
+    IA.orders.startResearch(s, me, 'conscription');
+    await settle();
+    seen.push(step());
+
+    // 4. Give a stack somewhere to go.
+    var mine = s.armies.filter(function (a) { return a.ownerId === s.playerId; })[0];
+    var prov = s.provinces[mine.provinceId];
+    for (var i = 0; i < prov.neighbors.length; i++) {
+      var cand = s.provinces[prov.neighbors[i]];
+      if (!cand.isSea && cand.nationId === s.playerId) {
+        IA.orders.issueMove(s, mine, cand.id);
+        break;
+      }
+    }
+    await settle();
+    seen.push(step());
+
+    // 5. Start a depot, which is what the supply step asks for.
+    var second = null;
+    for (var q = 0; q < me.provinces.length; q++) {
+      if (me.provinces[q] !== me.capitalProvince) { second = s.provinces[me.provinces[q]]; break; }
+    }
+    IA.orders.startConstruction(s, second || home, 'warehouse');
+    await settle();
+    seen.push(step());
+
+    // 6. Open the war aims.
+    ui.buildWarAims();
+    await settle();
+    var ended = !IA.tutorial.isActive();
+    seen.push(ended ? 'finished' : step());
+    var out = { seen: seen, ended: ended, done: IA.tutorial.finished() };
+
+    // Put the world back: the checks further down start their own construction
+    // and research, and would otherwise be rejected as already in progress.
+    me.researching = null;
+    home.construction = null;
+    home.queue = [];
+    if (second) { second.construction = null; second.queue = []; }
+    return out;
+  });
+  if (tut.error) fail('tutorial: ' + tut.error);
+  else {
+    var expected = ['select', 'build', 'research', 'move', 'supply', 'aims', 'finished'];
+    var moved = tut.seen.join(' -> ');
+    for (var ti = 0; ti < expected.length; ti++) {
+      if (tut.seen[ti] !== expected[ti]) {
+        fail('tutorial did not follow the real game state: ' + moved);
+        break;
+      }
+    }
+    if (!tut.ended) fail('tutorial did not finish after the last step');
+    if (!tut.done) fail('a finished tutorial was not remembered');
+    if (tut.seen[0] === 'select' && tut.ended) {
+      console.log('tutorial advances on real game state (' + moved + ')');
+    }
+  }
+
   // Put fog back on for the rest of the run, so everything below is tested on
   // the path a default campaign actually takes.
   await page.evaluate(function () {
