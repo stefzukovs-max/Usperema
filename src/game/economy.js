@@ -146,35 +146,6 @@
   var ARMY_ATTRITION = 0.75;     // hit points an hour per battalion, unsupplied
   var UNSUPPLIED_ATTACK = 0.62;  // what an unsupplied stack's fire is worth
 
-  /** Max-heap on remaining reach, so each province is settled from its best feed. */
-  function Heap() { this.a = []; }
-  Heap.prototype.push = function (id, key) {
-    var a = this.a, i = a.length;
-    a.push({ id: id, key: key });
-    while (i > 0) {
-      var p = (i - 1) >> 1;
-      if (a[p].key >= a[i].key) break;
-      var t = a[p]; a[p] = a[i]; a[i] = t;
-      i = p;
-    }
-  };
-  Heap.prototype.pop = function () {
-    var a = this.a, top = a[0], last = a.pop();
-    if (a.length) {
-      a[0] = last;
-      var i = 0;
-      for (;;) {
-        var l = i * 2 + 1, r = l + 1, m = i;
-        if (l < a.length && a[l].key > a[m].key) m = l;
-        if (r < a.length && a[r].key > a[m].key) m = r;
-        if (m === i) break;
-        var t = a[m]; a[m] = a[i]; a[i] = t;
-        i = m;
-      }
-    }
-    return top;
-  };
-
   function supplySources(state, nation) {
     var out = [];
     var extra = techBonus(nation, 'supply');
@@ -209,7 +180,9 @@
   function spreadSupply(state, nation, occupiers) {
     var supply = nation.supply = {};
     var hops = {};
-    var heap = new Heap();
+    // Best-fed province first, so each is settled once: the shared heap is a
+    // min-heap, so reach is negated to get the largest out first.
+    var heap = new IA.util.Heap(function (x, y) { return x.key - y.key; });
     var sources = supplySources(state, nation);
     var i;
     for (i = 0; i < sources.length; i++) {
@@ -217,23 +190,24 @@
       if (supply[s.id] !== undefined && supply[s.id] >= s.reach) continue;
       supply[s.id] = s.reach;
       hops[s.id] = 0;
-      heap.push(s.id, s.reach);
+      heap.push({ id: s.id, key: -s.reach });
     }
-    while (heap.a.length) {
+    while (heap.size) {
       var top = heap.pop();
-      if (top.key < supply[top.id] - 1e-9) continue;              // stale entry
+      var reach = -top.key;
+      if (reach < supply[top.id] - 1e-9) continue;                // stale entry
       var prov = state.provinces[top.id];
       var here = occupiers[prov.id];
       if (here && anyHostile(state, nation.id, here)) continue;   // the line is cut here
       for (var k = 0; k < prov.neighbors.length; k++) {
         var np = state.provinces[prov.neighbors[k]];
         if (!carriesSupply(state, nation, np)) continue;
-        var left = top.key - (buildingLevel(np, 'railway') ? 1 - RAIL_DISCOUNT : 1);
+        var left = reach - (buildingLevel(np, 'railway') ? 1 - RAIL_DISCOUNT : 1);
         if (left < 0) continue;
         if (supply[np.id] !== undefined && supply[np.id] >= left - 1e-9) continue;
         supply[np.id] = left;
         hops[np.id] = hops[prov.id] + 1;
-        heap.push(np.id, left);
+        heap.push({ id: np.id, key: -left });
       }
     }
     for (i = 0; i < nation.provinces.length; i++) {

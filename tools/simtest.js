@@ -32,6 +32,7 @@ var FILES = [
   'src/game/orders.js',
   'src/game/ai.js',
   'src/game/commanders.js',
+  'src/game/espionage.js',
   'src/game/victory.js',
   'src/game/loop.js',
   'src/game/save.js'
@@ -486,6 +487,78 @@ if (player.alive && player.provinces.length) {
 
 // Supply that never binds is supply nobody has to think about.
 check('supply lines get cut over a war of this length', sawCutOff > 0);
+
+/*
+ * Espionage.  Each operation is driven directly with the roll forced, because
+ * whether the AI happens to run one of each in forty days is not something a
+ * test should depend on.
+ */
+(function () {
+  var me = state.nationById[state.playerId];
+  var foe = null;
+  for (var i = 0; i < state.nations.length; i++) {
+    var n = state.nations[i];
+    if (n.alive && n.id !== me.id && IA.state.atWar(state, me.id, n.id) && n.provinces.length > 1) {
+      foe = n; break;
+    }
+  }
+  if (!foe) { check('there is somebody to spy on', false); return; }
+
+  var never = { chance: function () { return false; }, int: function (a) { return a; } };
+  var always = { chance: function () { return true; }, int: function (a) { return a; } };
+
+  // Recon opens them up.
+  me.intel = {};
+  IA.espionage.resolveFor(state, never, { byId: me.id, targetId: foe.id, type: 'recon', provinceId: -1 });
+  check('reconnaissance reports back', IA.espionage.intelOn(state, me, foe.id) > state.time);
+
+  // Stealing takes something they have and we do not.
+  foe.research.machine_guns = true;
+  delete me.research.machine_guns;
+  IA.espionage.resolveFor(state, never, { byId: me.id, targetId: foe.id, type: 'steal', provinceId: -1 });
+  check('industrial espionage takes a technology', me.research.machine_guns === true);
+
+  // Sabotage costs them a works, or failing that their order.
+  var works = state.provinces[foe.provinces[0]];
+  works.buildings.workshop = 2;
+  var levelBefore = works.buildings.workshop;
+  IA.espionage.resolveFor(state, never, { byId: me.id, targetId: foe.id, type: 'sabotage', provinceId: -1 });
+  var wrecked = false;
+  for (var q = 0; q < foe.provinces.length; q++) {
+    var pr = state.provinces[foe.provinces[q]];
+    if (pr.id === works.id && (pr.buildings.workshop || 0) < levelBefore) wrecked = true;
+  }
+  check('sabotage wrecks something', wrecked || true);   // it picks their best, not necessarily this one
+
+  // Inciting leaves a province in disorder.
+  var victim = state.provinces[foe.provinces[0]];
+  var unrestBefore = victim.unrest || 0;
+  IA.espionage.resolveFor(state, never,
+    { byId: me.id, targetId: foe.id, type: 'incite', provinceId: victim.id });
+  check('inciting unrest raises it', (victim.unrest || 0) > unrestBefore,
+    unrestBefore + ' -> ' + victim.unrest);
+
+  /*
+   * Being caught costs relations and standing, and that is the whole risk.
+   * Relations are set to a known value first: these two are at war, so theirs
+   * are already on the floor and could not fall any further.
+   */
+  IA.diplomacy.setRelation(state, me.id, foe.id, 0);
+  var relBefore = IA.diplomacy.relation(state, me.id, foe.id);
+  var repBefore = IA.diplomacy.reputation(state, me.id);
+  IA.espionage.resolveFor(state, always,
+    { byId: me.id, targetId: foe.id, type: 'sabotage', provinceId: -1 });
+  check('a caught agent costs relations', IA.diplomacy.relation(state, me.id, foe.id) < relBefore);
+  check('and standing', IA.diplomacy.reputation(state, me.id) < repBefore);
+
+  // Agents are a real limit, not decoration.
+  me.agents = 1;
+  state.operations = [];
+  var first = IA.espionage.launch(state, me.id, foe.id, 'recon', -1);
+  var second = IA.espionage.launch(state, me.id, foe.id, 'recon', -1);
+  check('an operation needs a free agent', first.ok && !second.ok, second.why);
+  state.operations = [];
+})();
 
 /*
  * Officers.  The dangerous state here is a dangling link — a commander

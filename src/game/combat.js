@@ -551,7 +551,8 @@
     if (nation.provinces.length > 0) return;
     nation.alive = false;
     nation.defeatedAt = state.time;
-    // Surviving forces disband.
+    // Surviving forces disband, and the officers with them.
+    IA.commanders.disband(state, nationId);
     for (var i = state.armies.length - 1; i >= 0; i--) {
       if (state.armies[i].ownerId === nationId) state.armies.splice(i, 1);
     }

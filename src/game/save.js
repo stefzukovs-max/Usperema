@@ -31,7 +31,8 @@
         id: n.id, alive: n.alive, isPlayer: n.isPlayer, ai: n.ai,
         resources: n.resources, research: n.research, researching: n.researching,
         relations: n.relations, treaties: n.treaties, treatyUntil: n.treatyUntil,
-        reputation: n.reputation, provinces: n.provinces,
+        reputation: n.reputation, agents: n.agents || 0, intel: n.intel || {},
+        counterUntil: n.counterUntil || 0, provinces: n.provinces,
         vp: n.vp, warCount: n.warCount || 0, nextTurn: n.nextTurn,
         capitalProvince: n.capitalProvince
       });
@@ -49,6 +50,8 @@
       offers: state.offers || [],
       reports: (state.reports || []).slice(0, 30),
       commanders: state.commanders || [],
+      operations: state.operations || [],
+      nextOpId: state.nextOpId || 0,
       nextCommanderId: state.nextCommanderId || 0,
       log: state.log.slice(0, 120),
       armies: state.armies,
@@ -72,6 +75,8 @@
     state.offers = data.offers || [];
     state.reports = data.reports || [];
     state.commanders = data.commanders || [];
+    state.operations = data.operations || [];
+    state.nextOpId = data.nextOpId || 0;
     state.nextCommanderId = data.nextCommanderId || 0;
     IA.commanders.index(state);
     // Battles in progress are not saved; they re-form from the stacks present.
@@ -110,6 +115,9 @@
       n.treaties = sn.treaties || {};
       n.treatyUntil = sn.treatyUntil || {};
       n.reputation = sn.reputation === undefined ? 75 : sn.reputation;
+      n.agents = sn.agents || 0;
+      n.intel = sn.intel || {};
+      n.counterUntil = sn.counterUntil || 0;
       n.provinces = sn.provinces || [];
       n.vp = sn.vp || 0;
       n.warCount = sn.warCount || 0;

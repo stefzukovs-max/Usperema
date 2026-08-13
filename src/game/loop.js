@@ -44,6 +44,7 @@
     IA.market.tick(state, rng, hours);
     IA.diplomacy.tickRelations(state, rng, hours);
     IA.commanders.tick(state, rng, hours);
+    IA.espionage.tick(state, rng, hours);
     IA.ai.tick(state, rng, hours);
   }
 
@@ -51,6 +52,7 @@
     IA.weather.refresh(state);
     IA.economy.refreshSupply(state);
     IA.commanders.tickDaily(state, rng);
+    IA.espionage.tickDaily(state, rng);
     for (var i = 0; i < state.nations.length; i++) {
       var nation = state.nations[i];
       if (!nation.alive) continue;

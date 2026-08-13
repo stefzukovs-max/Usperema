@@ -404,11 +404,13 @@
       }
       seeds = next;
     }
-    // Allies share what they can see of their own borders.
+    // Allies share what they can see of their own borders, and a power your
+    // agents have reported on is open to you for as long as the report holds.
     for (i = 0; i < state.nations.length; i++) {
       var other = state.nations[i];
       if (other.id === nation.id || !other.alive) continue;
-      if (IA.state.treaty(state, nation.id, other.id) !== 'alliance') continue;
+      var allied = IA.state.treaty(state, nation.id, other.id) === 'alliance';
+      if (!allied && !IA.espionage.intelOn(state, nation, other.id)) continue;
       for (j = 0; j < other.provinces.length; j++) vis[other.provinces[j]] = true;
     }
     this.visible = vis;
@@ -1184,6 +1186,7 @@
       'War aims': function () { return self.buildWarAims(); },
       Battles: function () { return self.buildBattleReports(); },
       Officers: function () { return self.buildOfficers(); },
+      Intel: function () { return self.buildIntel(); },
       Log: function () { return self.buildLogView(); },
       Ranking: function () { return self.buildRanking(); },
       Army: function () { return self.buildArmyOverview(); },
@@ -1336,6 +1339,108 @@
         ])
       ]));
     });
+    return wrap;
+  };
+
+  /**
+   * Intelligence: the agents you have, what they are doing, and what they have
+   * brought back.  Everything here can fail, so the risk is stated up front.
+   */
+  UI.buildIntel = function () {
+    var self = this, state = this.state;
+    var me = state.nationById[state.playerId];
+    var wrap = el('div', { class: 'modal-sections' });
+    var free = IA.espionage.agentsFree(state, me);
+    var cap = IA.espionage.agentCap(state, me);
+
+    wrap.appendChild(el('div', { class: 'stat-grid' }, [
+      stat('Agents', free + ' free of ' + (me.agents || 0)),
+      stat('Establishment', String(cap) + ' max'),
+      stat('Own security', me.counterUntil > state.time ? 'Swept' : 'Routine')
+    ]));
+    wrap.appendChild(el('div', { class: 'inline-actions' }, el('button', {
+      class: 'ghost',
+      text: 'Recruit an agent (' + util.fmt(IA.espionage.AGENT_COST) + ')',
+      onclick: function () {
+        var r = IA.espionage.recruit(state, me);
+        self.toast(r.ok ? 'A new agent joins the service.' : r.why, r.ok ? '' : 'warn');
+        self.refreshModal();
+      }
+    })));
+
+    var live = IA.espionage.pending(state, me.id);
+    if (live.length) {
+      var running = el('div', { class: 'op-list' });
+      live.forEach(function (op) {
+        var spec = IA.espionage.BY_ID[op.type];
+        var target = state.nationById[op.targetId];
+        running.appendChild(el('div', { class: 'op-row' }, [
+          el('span', { class: 'op-icon', text: spec.icon }),
+          el('div', { class: 'op-main' }, [
+            el('div', { text: spec.name + ' — ' + (target ? target.name : '?') }),
+            el('div', { class: 'muted', text: util.fmtDuration(op.until - state.time) + ' to go' })
+          ])
+        ]));
+      });
+      wrap.appendChild(section('In the field', running));
+    }
+
+    // Who to work against: powers you have met.
+    var targets = [];
+    for (var i = 0; i < state.nations.length; i++) {
+      var n = state.nations[i];
+      if (n.id === me.id || !n.alive) continue;
+      if (!IA.diplomacy.areNeighbours(state, me.id, n.id) &&
+        IA.state.treaty(state, me.id, n.id) === 'peace' &&
+        !IA.espionage.intelOn(state, me, n.id)) continue;
+      targets.push(n);
+    }
+    targets.sort(function (a, b) { return b.vp - a.vp; });
+
+    var picked = { id: targets.length ? targets[0].id : null };
+    var chooser = el('select', { class: 'search-input' });
+    targets.forEach(function (n) {
+      var o = doc.createElement('option');
+      o.value = n.id;
+      o.textContent = n.name + (IA.espionage.intelOn(state, me, n.id) ? ' — reported on' : '');
+      chooser.appendChild(o);
+    });
+    chooser.addEventListener('change', function () { picked.id = chooser.value; });
+    if (targets.length) wrap.appendChild(section('Target', chooser));
+
+    var ops = el('div', { class: 'op-list' });
+    IA.espionage.OPERATIONS.forEach(function (spec) {
+      ops.appendChild(el('div', { class: 'op-row' }, [
+        el('span', { class: 'op-icon', text: spec.icon }),
+        el('div', { class: 'op-main' }, [
+          el('div', { text: spec.name }),
+          el('div', { class: 'muted', text: spec.desc }),
+          el('div', { class: 'muted', text: util.fmt(spec.cost) + ' · ' +
+            Math.round(spec.hours / 24) + 'd · ' +
+            (spec.risk ? Math.round(spec.risk * 100) + '% chance of being caught' : 'no risk') })
+        ]),
+        el('button', {
+          class: 'ghost', text: 'Send',
+          onclick: function () {
+            var provinceId = -1;
+            if (spec.needsProvince) {
+              var t = state.nationById[picked.id];
+              if (!t || !t.provinces.length) { self.toast('No province to work in.', 'warn'); return; }
+              // The province of theirs that would hurt most to lose.
+              var best = t.provinces[0];
+              for (var q = 0; q < t.provinces.length; q++) {
+                if (state.provinces[t.provinces[q]].vp > state.provinces[best].vp) best = t.provinces[q];
+              }
+              provinceId = best;
+            }
+            var r = IA.espionage.launch(state, me.id, picked.id, spec.id, provinceId);
+            self.toast(r.ok ? 'The agent is on his way.' : r.why, r.ok ? '' : 'warn');
+            self.refreshModal();
+          }
+        })
+      ]));
+    });
+    wrap.appendChild(section('Operations', ops));
     return wrap;
   };
 

@@ -82,6 +82,9 @@
        * finds nobody will sign with it and everybody will sign against it.
        */
       n.reputation = 75;
+      // Intelligence: agents on hand, and what they have learned.
+      n.agents = 2;
+      n.intel = {};
       n.income = null;
       n.upkeep = null;
       n.power = 0;

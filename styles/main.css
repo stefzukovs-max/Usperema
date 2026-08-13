@@ -608,3 +608,10 @@ input { font: inherit; }
 .command-who { display: flex; flex-direction: column; gap: 2px; }
 .command-name { font-weight: 600; }
 .command-traits { font-size: 12px; color: var(--dim); }
+
+/* Intelligence: operations in the field and the ones you can send. */
+.op-list { display: flex; flex-direction: column; gap: 7px; }
+.op-row { display: flex; align-items: flex-start; gap: 10px; background: rgba(0,0,0,.2); border-radius: 4px; padding: 9px 11px; }
+.op-icon { font-size: 17px; color: var(--accent); line-height: 1.3; flex: 0 0 auto; }
+.op-main { flex: 1 1 auto; min-width: 0; }
+.op-main .muted { font-size: 12px; color: var(--dim); margin-top: 2px; }

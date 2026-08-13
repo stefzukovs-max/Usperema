@@ -229,6 +229,8 @@
       if (found) { found.count += g.count; found.hp += g.hp; }
       else target.units.push({ typeId: g.typeId, count: g.count, hp: g.hp });
     }
+    // The officer comes across with his men if the receiving stack has none.
+    IA.commanders.transfer(state, source, target);
     var idx = state.armies.indexOf(source);
     if (idx >= 0) state.armies.splice(idx, 1);
     IA.state.touchArmies(state);

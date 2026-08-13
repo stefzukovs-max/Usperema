@@ -148,11 +148,39 @@
   }
 
   function release(state, armyId) {
-    var army = IA.state.armyById(state, armyId);
-    if (army && army.commanderId) {
-      var c = state.commanderById[army.commanderId];
-      if (c) c.armyId = null;
-      army.commanderId = null;
+    detach(state, IA.state.armyById(state, armyId));
+  }
+
+  /**
+   * Break the link both ways.  Every place a stack stops existing has to call
+   * this, or an officer is left pointing at a command that is not there.
+   */
+  function detach(state, army) {
+    if (!army || !army.commanderId || !state.commanderById) return null;
+    var c = state.commanderById[army.commanderId];
+    if (c) c.armyId = null;
+    army.commanderId = null;
+    return c;
+  }
+
+  /** A stack is merging into another: its officer goes with it if there is room. */
+  function transfer(state, from, to) {
+    var c = detach(state, from);
+    if (!c || !to || to.commanderId) return;
+    c.armyId = to.id;
+    to.commanderId = c.id;
+  }
+
+  /** A power is gone, and so are its officers. */
+  function disband(state, nationId) {
+    if (!state.commanders) return;
+    for (var i = state.commanders.length - 1; i >= 0; i--) {
+      var c = state.commanders[i];
+      if (c.nationId !== nationId) continue;
+      var army = c.armyId ? IA.state.armyById(state, c.armyId) : null;
+      if (army) army.commanderId = null;
+      state.commanders.splice(i, 1);
+      delete state.commanderById[c.id];
     }
   }
 
@@ -250,7 +278,8 @@
   IA.commanders = {
     init: init, tick: tick, tickDaily: tickDaily, index: index,
     effectOf: effectOf, commanderOf: commanderOf, titleOf: titleOf,
-    assign: assign, release: release, armyLost: armyLost,
+    assign: assign, release: release, detach: detach, transfer: transfer,
+    disband: disband, armyLost: armyLost,
     unassigned: unassigned, commandersOf: commandersOf, capFor: capFor,
     rankAt: rankAt, PROMOTE_COST: PROMOTE_COST
   };
