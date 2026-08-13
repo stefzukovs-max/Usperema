@@ -65,6 +65,7 @@
       } else {
         base *= TERRAIN[destProv.terrain] ? TERRAIN[destProv.terrain].speed : 1;
       }
+      base *= IA.weather.of(destProv).speed;
     }
     return base;
   }

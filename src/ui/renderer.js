@@ -738,6 +738,28 @@
     ctx.restore();
   };
 
+  /**
+   * Weather lies over the ground rather than in it: it changes every day, and
+   * baking it into the cached layer would repaint the whole map each midnight.
+   * Only conditions that actually cost you something are drawn, so a clear day
+   * looks like a clear day.
+   */
+  Renderer.prototype.drawWeather = function (ctx) {
+    var state = this.state;
+    var box = this.viewBox(2);
+    ctx.save();
+    this.applyCamera(ctx);
+    for (var i = 0; i < state.provinces.length; i++) {
+      var p = state.provinces[i];
+      if (p.size === 0 || !overlaps(box, p.bbox)) continue;
+      var wash = IA.weather.of(p).wash;
+      if (!wash) continue;
+      ctx.fillStyle = wash;
+      ctx.fill(this.pathFor(p));
+    }
+    ctx.restore();
+  };
+
   Renderer.prototype.draw = function (ui) {
     var state = this.state;
     if (state.dirtyProvinces && state.dirtyProvinces.length) {
@@ -762,6 +784,7 @@
       ctx.restore();
     }
 
+    this.drawWeather(ctx);
     if (z >= VECTOR_ZOOM) this.drawFog(ctx, ui);
 
     this.drawNationLabels(ctx);

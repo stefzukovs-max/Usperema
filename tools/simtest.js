@@ -23,6 +23,7 @@ var FILES = [
   'src/engine/mapdata.js',
   'src/engine/worldgen.js',
   'src/game/diplomacy.js',
+  'src/game/weather.js',
   'src/game/market.js',
   'src/game/state.js',
   'src/game/economy.js',
@@ -146,6 +147,63 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
   IA.economy.refreshSupply(state);
   check('supply comes back once the road is clear',
     player.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length === before);
+})();
+
+/*
+ * The seasons have to arrive, and arrive in the right hemisphere.  Checked by
+ * winding the clock rather than by running the war, so it costs nothing.
+ */
+(function () {
+  var was = state.time;
+  check('the war opens in July 1914', IA.weather.formatDate(state) === '28 July 1914',
+    IA.weather.formatDate(state));
+
+  var north = state.provinces[state.nationById.RUS.capitalProvince];   // Petrograd
+  var south = null;
+  for (var i = 0; i < state.provinces.length; i++) {
+    var p = state.provinces[i];
+    if (!p.isSea && p.size > 0 && p.lat < -30) { south = p; break; }
+  }
+  check('the map reaches the southern hemisphere', !!south);
+
+  function seasonsOverAYear(prov) {
+    var seen = {};
+    for (var d = 0; d < 365; d += 15) {
+      state.time = d * 24;
+      seen[IA.weather.season(state, prov)] = true;
+    }
+    return Object.keys(seen).sort().join(',');
+  }
+  check('all four seasons come round', seasonsOverAYear(north) === 'autumn,spring,summer,winter');
+
+  state.time = 180 * 24;                    // late January 1915
+  check('January is winter in the north', IA.weather.season(state, north) === 'winter',
+    IA.weather.season(state, north));
+  if (south) {
+    check('and summer in the south', IA.weather.season(state, south) === 'summer',
+      IA.weather.season(state, south));
+  }
+
+  // Winter has to actually reach the ground, not merely be a label.
+  IA.weather.refresh(state);
+  var frozen = 0;
+  for (var q = 0; q < state.provinces.length; q++) {
+    var w = state.provinces[q].weather;
+    if (w === 'snow' || w === 'blizzard') frozen++;
+  }
+  check('winter puts snow on the map', frozen > 40, 'only ' + frozen + ' provinces');
+  check('bad weather slows an army', IA.weather.WEATHER.blizzard.speed < 0.5);
+
+  // Weather is derived from the seed and the day, so it must be reproducible.
+  var sample = state.provinces[north.id].weather;
+  state.time = 12 * 24;
+  IA.weather.refresh(state);
+  state.time = 180 * 24;
+  IA.weather.refresh(state);
+  check('weather is a pure function of the day', state.provinces[north.id].weather === sample);
+
+  state.time = was;
+  IA.weather.refresh(state);
 })();
 
 check('every nation has a capital province', state.nations.every(function (n) {

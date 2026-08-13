@@ -43,6 +43,7 @@
   }
 
   function stepDay(state, rng) {
+    IA.weather.refresh(state);
     IA.economy.refreshSupply(state);
     for (var i = 0; i < state.nations.length; i++) {
       var nation = state.nations[i];

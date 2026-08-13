@@ -107,7 +107,9 @@
     state.playerId = data.playerId;
     IA.state.recomputeVP(state);
     IA.diplomacy.refreshWarCounts(state);
-    // Supply is derived, so it is retraced rather than stored.
+    // Weather and supply are both derived, so they are recomputed rather
+    // than stored — weather is a pure function of the seed and the day.
+    IA.weather.refresh(state);
     IA.economy.refreshSupply(state);
     state.dirtyProvinces = [];
     return state;

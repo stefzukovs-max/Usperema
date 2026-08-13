@@ -324,7 +324,9 @@
 
     doc.getElementById('hudNation').textContent = nation.name;
     doc.getElementById('hudFlag').style.background = nation.color;
-    doc.getElementById('hudDay').textContent = String(t.day);
+    // The real calendar, so the seasons mean something to the player.
+    doc.getElementById('hudDay').textContent = IA.weather.shortDate(state);
+    doc.getElementById('hudDay').title = IA.weather.formatDate(state) + ' — day ' + t.day;
     doc.getElementById('hudClock').textContent = t.clock;
     doc.getElementById('hudVp').textContent = nation.vp + '/' + state.victoryVP + ' VP';
 
@@ -456,7 +458,8 @@
         stat('Deposit', meta.icon + ' ' + meta.name),
         stat('Victory points', String(prov.vp)),
         stat('Terrain', IA.worldgen.TERRAIN[prov.terrain].name),
-        stat('Supply', supplyLabel(prov))
+        stat('Supply', supplyLabel(prov)),
+        stat('Weather', weatherLabel(prov))
       ]));
       if (isMine && !prov.inSupply) {
         wrap.appendChild(el('div', { class: 'notice warn' },
@@ -1376,6 +1379,15 @@
       el('span', { class: 'rs-icon', text: icon }),
       el('span', { class: 'rs-val', text: value })
     ]);
+  }
+
+  /** Weather with what it does to a fight, since that is why it is shown. */
+  function weatherLabel(prov) {
+    var w = IA.weather.of(prov);
+    var parts = [];
+    if (w.speed !== 1) parts.push(Math.round((w.speed - 1) * 100) + '% pace');
+    if (w.attack !== 1) parts.push(Math.round((w.attack - 1) * 100) + '% fire');
+    return w.icon + ' ' + w.name + (parts.length ? ' (' + parts.join(', ') + ')' : '');
   }
 
   /** How well fed a province is, in words rather than a number nobody can read. */

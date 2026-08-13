@@ -115,6 +115,7 @@
     // outlasting everyone else is the other way to win.
     state.victoryVP = Math.round(state.totalVP * 0.33);
     IA.diplomacy.refreshContacts(state);
+    IA.weather.refresh(state);
     IA.economy.refreshSupply(state);
     state.rngState = rng.s;
 

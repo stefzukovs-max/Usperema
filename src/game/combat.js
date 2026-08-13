@@ -117,6 +117,9 @@
     if (opts.assaultingCity && !prov.isSea) {
       attackMul *= 1 + IA.economy.techBonus(nation, 'cityAtk');
     }
+    // You cannot see to shoot in fog, and you cannot get the guns forward
+    // through mud.
+    attackMul *= IA.weather.of(prov).attack;
     raw *= DAMAGE_SCALE * hours * attackMul * rng.range(0.85, 1.15);
     raw *= ammoFactor(state, nation, side.armies, hours);
     if (opts.damageMul) raw *= opts.damageMul;

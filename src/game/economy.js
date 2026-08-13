@@ -292,13 +292,17 @@
     for (var i = 0; i < state.armies.length; i++) {
       var army = state.armies[i];
       army.supplied = armyInSupply(state, army);
-      if (army.supplied) continue;
+      var prov = state.provinces[army.provinceId];
+      // Conditions cost men whether or not the supply is getting through; a
+      // blizzard does not care that the railhead is intact.
+      var rate = (army.supplied ? 0 : ARMY_ATTRITION) + IA.weather.of(prov).attrition;
+      if (rate <= 0) continue;
       for (var u = 0; u < army.units.length; u++) {
         var g = army.units[u];
         if (g.count <= 0 || g.hp <= 0) continue;
         var type = UnitData.BY_ID[g.typeId];
         if (!type || type.domain !== 'land') continue;
-        g.hp -= ARMY_ATTRITION * g.count * hours;
+        g.hp -= rate * g.count * hours;
         hurt = true;
       }
     }

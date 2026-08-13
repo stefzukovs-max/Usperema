@@ -2,8 +2,9 @@
 /*
  * Renders the map on its own, with no interface over it, for the README.
  *
- *   node tools/hero.js            # whole world  -> shots/world-map.png
- *   node tools/hero.js europe     # the powers   -> shots/europe-1914.png
+ *   node tools/hero.js               # whole world -> shots/world-map.png
+ *   node tools/hero.js europe        # the powers  -> shots/europe-1914.png
+ *   node tools/hero.js europe 180    # ...on day 180, to see the winter
  */
 'use strict';
 
@@ -42,6 +43,7 @@ function chromePath() {
 }
 
 var view = process.argv[2] === 'europe' ? 'europe' : 'world';
+var atDay = Number(process.argv[3] || 0);
 var URL = 'file://' + path.join(__dirname, '..', 'index.html');
 var OUT = path.join(__dirname, 'shots',
   view === 'europe' ? 'europe-1914.png' : 'world-map.png');
@@ -62,8 +64,13 @@ var OUT = path.join(__dirname, 'shots',
   await page.waitForTimeout(600);
 
   // Clear the interface off the map and let it fill the window.
-  await page.evaluate(function (which) {
+  await page.evaluate(function (opts) {
+    var which = opts.which;
     IA.UI.setSpeed('pause');
+    if (opts.atDay > 0) {
+      IA.game.current.time = opts.atDay * 24;
+      IA.weather.refresh(IA.game.current);
+    }
     IA.UI.clearSelection();
     ['topbar', 'panel', 'bottomNav', 'speedControls', 'toasts'].forEach(function (id) {
       var el = document.getElementById(id);
@@ -88,7 +95,7 @@ var OUT = path.join(__dirname, 'shots',
     }
     r.clampCamera();
     r.lastMotion = 0;                    // full terrain detail, no fade
-  }, view);
+  }, { which: view, atDay: atDay });
 
   await page.waitForTimeout(600);
   await page.locator('#map').screenshot({ path: OUT });
