@@ -1141,6 +1141,7 @@
     var tabs = el('div', { class: 'tabs' });
     var host = el('div', { class: 'tab-host' });
     var views = {
+      'War aims': function () { return self.buildWarAims(); },
       Log: function () { return self.buildLogView(); },
       Ranking: function () { return self.buildRanking(); },
       Army: function () { return self.buildArmyOverview(); },
@@ -1158,9 +1159,41 @@
         }
       }));
     });
-    host.appendChild(views.Log());
+    host.appendChild(views['War aims']());
     wrap.appendChild(tabs);
     wrap.appendChild(host);
+    return wrap;
+  };
+
+  /**
+   * The six ways the war can be won, and how far along each of them you are.
+   * A victory condition nobody can see the state of is one nobody plays toward.
+   */
+  UI.buildWarAims = function () {
+    var state = this.state;
+    var me = state.nationById[state.playerId];
+    var wrap = el('div', { class: 'aims' });
+    var leader = null;
+    for (var i = 0; i < state.nations.length; i++) {
+      var n = state.nations[i];
+      if (n.alive && (!leader || n.vp > leader.vp)) leader = n;
+    }
+    wrap.appendChild(el('div', { class: 'notice' },
+      'Any one of these ends the war. ' +
+      (leader && leader.id !== me.id
+        ? leader.name + ' currently leads on victory points with ' + leader.vp + ' to your ' + me.vp + '.'
+        : 'You currently lead on victory points with ' + me.vp + '.')));
+
+    IA.victory.report(state, me).forEach(function (row) {
+      wrap.appendChild(el('div', { class: 'aim' + (row.met ? ' met' : '') }, [
+        el('div', { class: 'aim-head' }, [
+          el('span', { class: 'aim-name', text: row.name }),
+          el('span', { class: 'aim-note', text: row.note })
+        ]),
+        el('div', { class: 'aim-detail', text: row.detail }),
+        progressBar(row.progress, row.progress >= 1 ? 'ok' : row.progress > 0.6 ? 'warn' : '')
+      ]));
+    });
     return wrap;
   };
 

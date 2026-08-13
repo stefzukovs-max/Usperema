@@ -30,6 +30,7 @@ var FILES = [
   'src/game/combat.js',
   'src/game/orders.js',
   'src/game/ai.js',
+  'src/game/victory.js',
   'src/game/loop.js',
   'src/game/save.js'
 ];
@@ -260,6 +261,86 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
   state.nationById[b].reputation = repBefore;
   state.time = was;
   IA.diplomacy.refreshWarCounts(state);
+})();
+
+/*
+ * Every way of winning has to be reachable.
+ *
+ * A victory condition that can never fire is decoration, so each one is driven
+ * to its trigger on a throwaway copy of the world and the winner checked.  The
+ * copy is a save/load round trip, which keeps the real run untouched.
+ */
+(function () {
+  var snapshot = JSON.parse(JSON.stringify(IA.save.serialise(state)));
+  function fresh() { return IA.save.deserialise(JSON.parse(JSON.stringify(snapshot))); }
+
+  var report = IA.victory.report(state, state.nationById[state.playerId]);
+  check('there are six ways to win', report.length === 6, 'got ' + report.length);
+  check('none of them is already met on day one',
+    report.every(function (r) { return !r.met; }),
+    report.filter(function (r) { return r.met; }).map(function (r) { return r.id; }).join(','));
+  check('every condition explains itself',
+    report.every(function (r) { return r.name && r.detail && r.note !== undefined; }));
+
+  function wins(label, id, setup) {
+    var s = fresh();
+    setup(s, s.nationById[s.playerId]);
+    var got = IA.victory.check(s);
+    check(label, !!got && got.condition === id && got.winner === s.playerId,
+      got ? got.condition + ' by ' + got.winner : 'nobody won');
+  }
+
+  wins('domination can be won', 'domination', function (s, me) {
+    me.vp = s.victoryVP + 1;
+  });
+
+  wins('the capitals can be taken', 'capitals', function (s, me) {
+    var taken = 0;
+    for (var i = 0; i < s.nations.length && taken < IA.victory.CAPITALS_NEEDED; i++) {
+      var other = s.nations[i];
+      if (other.id === me.id || !other.alive) continue;
+      s.provinces[other.capitalProvince].nationId = me.id;
+      taken++;
+    }
+  });
+
+  /*
+   * Deliberately short of the domination threshold on its own — the bloc is
+   * what carries it over the line, which is the whole point of the condition
+   * and the reason the first draft of this test passed for the wrong reason.
+   */
+  wins('a coalition can win', 'coalition', function (s, me) {
+    me.vp = Math.floor(s.totalVP * 0.30);
+    var allies = 0;
+    for (var i = 0; i < s.nations.length; i++) {
+      var o = s.nations[i];
+      if (o.id === me.id || !o.alive) continue;
+      if (IA.state.treaty(s, me.id, o.id) !== 'alliance') continue;
+      o.vp = Math.floor(s.totalVP * 0.21);
+      if (++allies >= 1) break;
+    }
+    check('the player has an ally to form a bloc with', allies > 0);
+  });
+
+  wins('industry can win it', 'industry', function (s, me) {
+    me.industryStreak = IA.victory.INDUSTRY_DAYS;
+  });
+
+  wins('conquest can win it', 'conquest', function (s, me) {
+    for (var i = 0; i < s.nations.length; i++) {
+      if (s.nations[i].id !== me.id) s.nations[i].alive = false;
+    }
+  });
+
+  wins('the armistice ends it', 'armistice', function (s, me) {
+    s.time = (IA.victory.armisticeDay(s) + 1) * 24;
+    var top = 0;
+    for (var i = 0; i < s.nations.length; i++) if (s.nations[i].vp > top) top = s.nations[i].vp;
+    me.vp = top + 1;
+  });
+
+  // And the world as it stands must not accidentally satisfy any of them.
+  check('nobody has won on day one', IA.victory.check(state) === null);
 })();
 
 check('every nation has a capital province', state.nations.every(function (n) {

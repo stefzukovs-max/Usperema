@@ -54,41 +54,25 @@
     IA.diplomacy.refreshWarCounts(state);
     IA.diplomacy.refreshContacts(state);
     IA.state.recomputeVP(state);
+    IA.victory.tickDaily(state);
     checkVictory(state);
   }
 
   function checkVictory(state) {
-    var alive = [];
     for (var i = 0; i < state.nations.length; i++) {
       var n = state.nations[i];
       if (n.alive && n.provinces.length === 0) IA.combat.checkElimination(state, n.id);
-      if (n.alive) alive.push(n);
     }
     var player = state.nationById[state.playerId];
     if (player && !player.alive) {
-      state.gameOver = { result: 'defeat', winner: null, at: state.time };
+      state.gameOver = { result: 'defeat', winner: null, at: state.time, reason: 'overrun' };
       IA.state.pushLog(state, 'world', 'Your nation has been overrun. The war is lost.');
       return;
     }
-    var leader = null;
-    for (var j = 0; j < alive.length; j++) {
-      if (!leader || alive[j].vp > leader.vp) leader = alive[j];
-    }
-    if (leader && leader.vp >= state.victoryVP) {
-      state.gameOver = {
-        result: leader.isPlayer ? 'victory' : 'defeat',
-        winner: leader.id, at: state.time, reason: 'victory points'
-      };
-      IA.state.pushLog(state, 'world', leader.name + ' has reached the victory threshold and wins the war.');
-      return;
-    }
-    if (alive.length === 1) {
-      state.gameOver = {
-        result: alive[0].isPlayer ? 'victory' : 'defeat',
-        winner: alive[0].id, at: state.time, reason: 'last nation standing'
-      };
-      IA.state.pushLog(state, 'world', alive[0].name + ' stands alone. The war is over.');
-    }
+    var won = IA.victory.check(state);
+    if (!won) return;
+    state.gameOver = won;
+    IA.state.pushLog(state, 'world', won.message);
   }
 
   IA.loop = { advance: advance, checkVictory: checkVictory, DAILY_GOLD: DAILY_GOLD };

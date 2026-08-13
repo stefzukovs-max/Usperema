@@ -83,6 +83,11 @@
     return { day: d.getUTCDate(), month: d.getUTCMonth(), year: d.getUTCFullYear() };
   }
 
+  /** The day of the war a calendar date falls on. */
+  function dayOfDate(year, month, day) {
+    return Math.round((Date.UTC(year, month, day) - START) / 86400000);
+  }
+
   function formatDate(state) {
     var d = dateOf(state);
     return d.day + ' ' + MONTHS[d.month] + ' ' + d.year;
@@ -161,7 +166,7 @@
 
   IA.weather = {
     refresh: refresh, of: of, WEATHER: WEATHER,
-    dateOf: dateOf, formatDate: formatDate, shortDate: shortDate,
+    dateOf: dateOf, dayOfDate: dayOfDate, formatDate: formatDate, shortDate: shortDate,
     season: season, seasonAt: seasonAt, climateOf: climateOf, dayOfWar: dayOfWar
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

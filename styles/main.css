@@ -563,3 +563,12 @@ input { font: inherit; }
   background: rgba(255,255,255,.07); padding: 5px 9px; font-size: 10.5px;
   color: var(--dim); line-height: 1.3; white-space: nowrap; flex: 0 0 auto;
 }
+
+/* War aims: the six ways the war can end, with progress against each. */
+.aims { display: flex; flex-direction: column; gap: 10px; }
+.aim { background: rgba(0,0,0,.22); border-radius: 4px; padding: 10px 12px; border-left: 3px solid transparent; }
+.aim.met { border-left-color: var(--good); background: rgba(125,154,91,.14); }
+.aim-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.aim-name { font-weight: 600; font-size: 14px; }
+.aim-note { font-size: 12px; color: var(--dim); text-align: right; }
+.aim-detail { font-size: 12px; color: var(--dim); margin: 3px 0 7px; }
