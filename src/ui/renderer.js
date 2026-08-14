@@ -162,6 +162,16 @@
     this.runBounds = new Array(state.runs.length);
     this.baseLayer = null;
     this.viewW = 1; this.viewH = 1; this.dpr = 1;
+    /*
+     * Shaded relief is geography, so it is built once and never rebuilt.  It is
+     * laid over the political fills in both the cached raster and the vector
+     * layer, which is why it costs nothing per frame.
+     */
+    try {
+      this.relief = IA.relief.build(state);
+    } catch (e) {
+      this.relief = null;                 // shading is never worth a broken map
+    }
     this.buildBase();
   }
 
@@ -272,6 +282,8 @@
       this.textureProvince(ctx, prov, path, BASE_SCALE);
     }
 
+    this.drawRelief(ctx, only ? [only.bbox[0] - 2, only.bbox[1] - 2, only.bbox[2] + 2, only.bbox[3] + 2]
+      : [0, 0, state.mapW, state.mapH]);
     this.strokeBorders(ctx, 1, only ? only.bbox : null);
     if (only) ctx.restore();
   };
@@ -542,13 +554,32 @@
     return out;
   };
 
-  /** The ground itself: coastal shelf, province fills, then every border. */
+  /**
+   * Lay the shaded relief over the fills.  Only the slice of it under the view
+   * is drawn, so zooming in does not scale a world-sized image.
+   */
+  Renderer.prototype.drawRelief = function (ctx, box) {
+    var relief = this.relief;
+    if (!relief) return;
+    var state = this.state;
+    var sx = relief.width / state.mapW, sy = relief.height / state.mapH;
+    var x0 = Math.max(0, Math.floor(box[0] * sx));
+    var y0 = Math.max(0, Math.floor(box[1] * sy));
+    var x1 = Math.min(relief.width, Math.ceil(box[2] * sx));
+    var y1 = Math.min(relief.height, Math.ceil(box[3] * sy));
+    if (x1 <= x0 || y1 <= y0) return;
+    ctx.drawImage(relief, x0, y0, x1 - x0, y1 - y0,
+      x0 / sx, y0 / sy, (x1 - x0) / sx, (y1 - y0) / sy);
+  };
+
+  /** The ground itself: coastal shelf, province fills, relief, then borders. */
   Renderer.prototype.drawGround = function (ctx, z, box, list) {
     this.drawShelf(ctx, z, box);
     for (var i = 0; i < list.length; i++) {
       ctx.fillStyle = this.fillFor(list[i]);
       ctx.fill(this.pathFor(list[i]));
     }
+    this.drawRelief(ctx, box);
     this.strokeBorders(ctx, z, box);
   };
 
@@ -751,7 +782,10 @@
     this.applyCamera(ctx);
     for (var i = 0; i < state.provinces.length; i++) {
       var p = state.provinces[i];
-      if (p.size === 0 || !overlaps(box, p.bbox)) continue;
+      // Land only.  Sea zones are large and rectangular, so a wash over them
+      // draws the weather grid itself across the ocean in hard diagonal bands
+      // rather than reading as weather.
+      if (p.size === 0 || p.isSea || !overlaps(box, p.bbox)) continue;
       var wash = IA.weather.of(p).wash;
       if (!wash) continue;
       ctx.fillStyle = wash;

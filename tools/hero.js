@@ -67,12 +67,16 @@ var OUT = path.join(__dirname, 'shots',
   await page.evaluate(function (opts) {
     var which = opts.which;
     IA.UI.setSpeed('pause');
+    // These are pictures of the map, not of a campaign: fog would just show
+    // which nation the seed happened to pick.
+    IA.game.current.settings.fogOfWar = false;
+    IA.UI.recomputeVisibility(true);
     if (opts.atDay > 0) {
       IA.game.current.time = opts.atDay * 24;
       IA.weather.refresh(IA.game.current);
     }
     IA.UI.clearSelection();
-    ['topbar', 'panel', 'bottomNav', 'speedControls', 'toasts'].forEach(function (id) {
+    ['topbar', 'panel', 'bottomNav', 'speedControls', 'toasts', 'tutorial'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });

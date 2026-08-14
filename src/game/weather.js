@@ -25,16 +25,21 @@
    * `speed` multiplies movement, `attack` multiplies the fire a stack puts out,
    * and `attrition` is hit points an hour per battalion lost to the conditions
    * themselves — men in the open in a blizzard, or in the desert in August.
+   *
+   * `wash` tints the ground on the map, and only weather that costs you
+   * something has one.  Provinces in Siberia are the size of countries, so a
+   * tint for ordinary rain paints a fog bank five hundred miles across and
+   * reads as a rendering fault rather than as weather.
    */
   var WEATHER = {
     clear: { name: 'Clear', icon: '☀', speed: 1.00, attack: 1.00, attrition: 0, wash: null },
     overcast: { name: 'Overcast', icon: '☁', speed: 1.00, attack: 0.97, attrition: 0, wash: null },
-    rain: { name: 'Rain', icon: '☂', speed: 0.85, attack: 0.92, attrition: 0, wash: 'rgba(70,96,120,0.16)' },
-    fog: { name: 'Fog', icon: '▤', speed: 0.90, attack: 0.78, attrition: 0, wash: 'rgba(206,212,216,0.16)' },
-    mud: { name: 'Mud', icon: '≋', speed: 0.55, attack: 0.82, attrition: 0.05, wash: 'rgba(92,68,40,0.26)' },
-    snow: { name: 'Snow', icon: '❄', speed: 0.65, attack: 0.85, attrition: 0.10, wash: 'rgba(226,236,244,0.17)' },
+    rain: { name: 'Rain', icon: '☂', speed: 0.85, attack: 0.92, attrition: 0, wash: null },
+    fog: { name: 'Fog', icon: '▤', speed: 0.90, attack: 0.78, attrition: 0, wash: null },
+    mud: { name: 'Mud', icon: '≋', speed: 0.55, attack: 0.82, attrition: 0.05, wash: 'rgba(96,70,40,0.22)' },
+    snow: { name: 'Snow', icon: '❄', speed: 0.65, attack: 0.85, attrition: 0.10, wash: 'rgba(228,238,246,0.15)' },
     blizzard: { name: 'Blizzard', icon: '✼', speed: 0.38, attack: 0.68, attrition: 0.28, wash: 'rgba(238,246,252,0.29)' },
-    heat: { name: 'Heat', icon: '☼', speed: 0.85, attack: 0.92, attrition: 0.12, wash: 'rgba(224,168,72,0.18)' },
+    heat: { name: 'Heat', icon: '☼', speed: 0.85, attack: 0.92, attrition: 0.12, wash: 'rgba(226,170,70,0.13)' },
     storm: { name: 'Storm', icon: '⚡', speed: 0.70, attack: 0.85, attrition: 0.06, wash: 'rgba(48,66,92,0.30)' }
   };
 
