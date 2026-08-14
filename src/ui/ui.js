@@ -63,6 +63,7 @@
     this.renderer.centerOn(state.nationById[state.playerId].capitalProvince, 8);
     this.bindInput();
     this.buildChrome();
+    this.buildMapModes();
     this.recomputeVisibility(true);
     this.refreshHud(true);
     this.selectProvince(state.nationById[state.playerId].capitalProvince);
@@ -453,6 +454,46 @@
     sub.textContent = ownerName + (prov.isSea ? '' : ' — ' + IA.worldgen.TERRAIN[prov.terrain].name);
     body.appendChild(this.buildProvincePanel(prov));
     panel.classList.add('open');
+  };
+
+  /**
+   * The map-mode switcher and its legend.  Rebuilt only when the mode changes,
+   * because it is static otherwise and this sits over the map.
+   */
+  UI.buildMapModes = function () {
+    var self = this;
+    var host = doc.getElementById('mapModes');
+    if (!host) return;
+    clear(host);
+    IA.Renderer.MODE_ORDER.forEach(function (id) {
+      var spec = IA.Renderer.MODES[id];
+      host.appendChild(el('button', {
+        class: 'mode-btn' + (self.renderer.mode === id ? ' on' : ''),
+        text: spec.name, title: spec.hint,
+        onclick: function () {
+          self.renderer.setMode(id);
+          IA.audio.play('select');
+          self.buildMapModes();
+        }
+      }));
+    });
+    this.buildLegend();
+  };
+
+  UI.buildLegend = function () {
+    var host = doc.getElementById('mapLegend');
+    if (!host) return;
+    clear(host);
+    var spec = this.renderer.modeSpec();
+    if (!spec.legend) { host.classList.remove('show'); return; }
+    host.classList.add('show');
+    host.appendChild(el('div', { class: 'legend-title', text: spec.name }));
+    spec.legend(this.renderer).forEach(function (row) {
+      host.appendChild(el('div', { class: 'legend-row' }, [
+        el('span', { class: 'legend-chip', style: 'background:' + row.colour }),
+        el('span', { text: row.label })
+      ]));
+    });
   };
 
   UI.buildProvincePanel = function (prov) {

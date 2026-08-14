@@ -650,3 +650,27 @@ input { font: inherit; }
 .u-glyph { display: block; opacity: .92; }
 .progress-label .u-glyph { display: inline-block; vertical-align: -2px; margin-right: 6px; }
 .b-icon .u-glyph, .u-icon .u-glyph { margin: 0 auto; }
+
+/* Map modes: the same geometry asked a different question. */
+.map-modes {
+  position: absolute; left: 8px; top: 8px; z-index: 12;
+  display: flex; flex-wrap: wrap; gap: 4px; max-width: 62%;
+}
+.mode-btn {
+  background: rgba(28,27,20,.86); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 5px 9px; font-size: 11px; letter-spacing: .06em; color: var(--dim);
+  backdrop-filter: blur(2px);
+}
+.mode-btn:hover { border-color: var(--accent); color: var(--text); }
+.mode-btn.on { border-color: var(--accent); background: rgba(200,162,74,.2); color: var(--accent-2); font-weight: 600; }
+
+/* Bottom-right: the log occupies the left of the map. */
+.map-legend {
+  display: none; position: absolute; right: 8px; bottom: 8px; z-index: 12;
+  background: rgba(28,27,20,.9); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 10px; font-size: 11px; backdrop-filter: blur(2px); max-width: 46%;
+}
+.map-legend.show { display: block; }
+.legend-title { font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
+.legend-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.legend-chip { width: 14px; height: 9px; border-radius: 2px; border: 1px solid rgba(0,0,0,.5); flex: 0 0 auto; }

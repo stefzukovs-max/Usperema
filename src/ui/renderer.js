@@ -157,6 +157,7 @@
     this.camera = { x: state.mapW / 2, y: state.mapH / 2, zoom: 4 };
     this.minZoom = 1;
     this.maxZoom = 40;
+    this.mode = 'political';
     this.paths = new Array(state.provinces.length);
     this.fillCache = new Array(state.provinces.length);
     this.runBounds = new Array(state.runs.length);
@@ -211,13 +212,146 @@
   };
 
   /** Terrain colour blended toward the owner's national colour. */
+  /*
+   * Map modes.
+   *
+   * The same geometry, filled by a different question.  Several of the
+   * simulation's most consequential systems — supply above all — were invisible
+   * on the map, which is where a player actually looks: you could only find out
+   * a province was cut off by selecting it.
+   *
+   * Each mode is a fill function and a legend.  The rest of the renderer does
+   * not know or care which one is in force; changing mode bumps the map epoch
+   * and the cached layer is rebuilt once.
+   */
+  var MODES = {
+    political: {
+      name: 'Political', hint: 'Who holds what.',
+      fill: function (r, prov) {
+        var terrain = TERRAIN[prov.terrain] || TERRAIN.plains;
+        var owner = prov.nationId ? r.state.nationById[prov.nationId] : null;
+        return owner ? mix(terrain.color, owner.color, 0.66) : mix(terrain.color, NEUTRAL, 0.2);
+      },
+      key: function (r, prov) { return prov.nationId || '-'; }
+    },
+    terrain: {
+      name: 'Terrain', hint: 'The ground itself, without the politics.',
+      fill: function (r, prov) { return (TERRAIN[prov.terrain] || TERRAIN.plains).color; },
+      key: function () { return 'terrain'; },
+      legend: function () {
+        return ['plains', 'farmland', 'forest', 'steppe', 'desert', 'mountain', 'tundra', 'urban']
+          .map(function (t) { return { colour: TERRAIN[t].color, label: TERRAIN[t].name }; });
+      }
+    },
+    supply: {
+      name: 'Supply', hint: 'How far your depots reach, and where the line is cut.',
+      fill: function (r, prov) {
+        if (prov.nationId !== r.state.playerId) return prov.nationId ? '#3a3830' : '#2e2c26';
+        if (!prov.inSupply) return '#8f2f22';
+        var t = clamp((prov.supply || 0) / 4, 0, 1);
+        return mix('#6b5c2c', '#a8c46a', t);
+      },
+      key: function (r, prov) {
+        return prov.nationId === r.state.playerId
+          ? 'S' + (prov.inSupply ? Math.round((prov.supply || 0) * 2) : 'x')
+          : 'other';
+      },
+      legend: function () {
+        return [
+          { colour: '#a8c46a', label: 'Secure' },
+          { colour: '#6b5c2c', label: 'Stretched' },
+          { colour: '#8f2f22', label: 'Cut off' },
+          { colour: '#3a3830', label: 'Not yours' }
+        ];
+      }
+    },
+    resources: {
+      name: 'Resources', hint: 'What each province yields.',
+      fill: function (r, prov) {
+        var c = DEPOSIT_COLOUR[prov.deposit];
+        return c || '#3a382e';
+      },
+      key: function (r, prov) { return 'D' + (prov.deposit || '-'); },
+      legend: function () {
+        var out = [];
+        for (var k in DEPOSIT_COLOUR) {
+          var meta = UnitData.RESOURCE_META[k];
+          out.push({ colour: DEPOSIT_COLOUR[k], label: meta ? meta.name : k });
+        }
+        out.push({ colour: '#3a382e', label: 'No deposit' });
+        return out;
+      }
+    },
+    diplomacy: {
+      name: 'Diplomacy', hint: 'Who is with you and who is against you.',
+      fill: function (r, prov) {
+        var state = r.state;
+        if (!prov.nationId) return '#2e2c26';
+        if (prov.nationId === state.playerId) return '#d9b455';
+        var t = IA.state.treaty(state, state.playerId, prov.nationId);
+        if (t === 'war') return '#8f2f22';
+        if (t === 'alliance') return '#4f7f7a';
+        if (t === 'nap') return '#5c6d8a';
+        return '#4a4636';
+      },
+      key: function (r, prov) {
+        return prov.nationId
+          ? 'T' + IA.state.treaty(r.state, r.state.playerId, prov.nationId) +
+            (prov.nationId === r.state.playerId ? 'me' : '')
+          : '-';
+      },
+      legend: function () {
+        return [
+          { colour: '#d9b455', label: 'You' },
+          { colour: '#4f7f7a', label: 'Allied' },
+          { colour: '#5c6d8a', label: 'Non-aggression' },
+          { colour: '#4a4636', label: 'At peace' },
+          { colour: '#8f2f22', label: 'At war' }
+        ];
+      }
+    },
+    unrest: {
+      name: 'Morale', hint: 'Where the ground is quiet, and where it is not.',
+      fill: function (r, prov) {
+        if (!prov.nationId) return '#2e2c26';
+        var m = clamp(prov.morale / 100, 0, 1);
+        return mix('#8f2f22', '#7d9a5b', m);
+      },
+      key: function (r, prov) { return 'M' + Math.round(prov.morale / 4); },
+      legend: function () {
+        return [
+          { colour: '#7d9a5b', label: 'Steady' },
+          { colour: '#8f2f22', label: 'Close to revolt' }
+        ];
+      }
+    }
+  };
+
+  var MODE_ORDER = ['political', 'terrain', 'supply', 'resources', 'diplomacy', 'unrest'];
+
+  var DEPOSIT_COLOUR = {
+    grain: '#b9b055', timber: '#5f7f4c', coal: '#4b4a45',
+    iron: '#8a7f76', oil: '#6b5b78'
+  };
+
+  Renderer.prototype.setMode = function (id) {
+    if (!MODES[id] || this.mode === id) return;
+    this.mode = id;
+    this.fillCache = new Array(this.state.provinces.length);
+    this.mapEpoch = (this.mapEpoch || 0) + 1;
+    // The cached political raster carries the fills too, so it has to go.
+    this.buildBase();
+  };
+
+  Renderer.prototype.modeSpec = function () { return MODES[this.mode] || MODES.political; };
+
+  /** Terrain colour blended toward whatever the current map mode asks for. */
   Renderer.prototype.fillFor = function (prov) {
-    var key = prov.nationId || '-';
+    var spec = this.modeSpec();
+    var key = spec.name + '|' + spec.key(this, prov);
     var cached = this.fillCache[prov.id];
     if (cached && cached.key === key) return cached.color;
-    var terrain = TERRAIN[prov.terrain] || TERRAIN.plains;
-    var owner = prov.nationId ? this.state.nationById[prov.nationId] : null;
-    var color = owner ? mix(terrain.color, owner.color, 0.66) : mix(terrain.color, NEUTRAL, 0.2);
+    var color = spec.fill(this, prov);
     this.fillCache[prov.id] = { key: key, color: color };
     return color;
   };
@@ -1252,5 +1386,7 @@
     ctx.restore();
   };
 
+  Renderer.MODES = MODES;
+  Renderer.MODE_ORDER = MODE_ORDER;
   IA.Renderer = Renderer;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

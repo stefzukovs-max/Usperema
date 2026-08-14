@@ -586,6 +586,66 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   });
   if (overflow > 1) fail('page overflows horizontally by ' + overflow + 'px');
 
+  /*
+   * Map modes.
+   *
+   * The claim is that each asks the map a different question, so the test is
+   * that each actually repaints the ground differently — a mode that returns
+   * the political fill under another name is a button that does nothing.
+   */
+  var modes = await page.evaluate(function () {
+    var r = IA.UI.renderer;
+    var state = IA.game.current;
+    /*
+     * Run the war on a little first.  On day one every province is at full
+     * morale and nothing is cut off, so supply and morale are legitimately one
+     * colour each and the check would be asking at the only moment it cannot
+     * be answered.  This is the last thing the test does for that reason: it
+     * moves the world on, which would pull the ground from under everything
+     * above it.
+     */
+    for (var h = 0; h < 24 * 12; h++) IA.loop.advance(state, 1);
+    /*
+     * The sample has to contain the player's own ground.  Taking every third
+     * province by index does not: indices are geographic, and supply and
+     * diplomacy both answer "yours or theirs" first, so a sample that happens
+     * to miss the player reports one colour and the mode looks broken.
+     */
+    var me = state.nationById[state.playerId];
+    var sample = [];
+    for (var m = 0; m < me.provinces.length; m++) sample.push(state.provinces[me.provinces[m]]);
+    for (var i = 0; i < state.landCount && sample.length < 220; i += 3) {
+      if (state.provinces[i].nationId) sample.push(state.provinces[i]);
+    }
+    if (!me.provinces.length) return { error: 'the player held nothing by the end' };
+    var seen = {}, out = [];
+    IA.Renderer.MODE_ORDER.forEach(function (id) {
+      r.setMode(id);
+      var sig = sample.map(function (p) { return r.fillFor(p); }).join(',');
+      out.push({ id: id, distinct: !seen[sig], colours: (function () {
+        var u = {};
+        sample.forEach(function (p) { u[r.fillFor(p)] = 1; });
+        return Object.keys(u).length;
+      })() });
+      seen[sig] = id;
+    });
+    r.setMode('political');
+    IA.UI.buildMapModes();
+    return { modes: out, legend: !!document.querySelector('#mapModes .mode-btn') };
+  });
+  if (modes.error) fail('map modes: ' + modes.error);
+  else if (!modes.legend) fail('the map-mode switcher did not render');
+  (modes.modes || []).forEach(function (m) {
+    if (!m.distinct) fail('map mode "' + m.id + '" paints the same as another mode');
+    if (m.colours < 2) fail('map mode "' + m.id + '" paints everything one colour');
+  });
+  if (modes.modes) {
+    console.log('map modes: ' + modes.modes.map(function (m) {
+      return m.id + '(' + m.colours + ')';
+    }).join(' '));
+  }
+
+
   await browser.close();
 
   if (errors.length) {
