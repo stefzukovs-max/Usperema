@@ -274,6 +274,43 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
     }
   }
 
+  /*
+   * The unit icon set.
+   *
+   * Emoji were what shipped, and they render differently on every platform.
+   * These are drawn, so the check is that every unit resolves to a drawing,
+   * that no two categories collapse onto the same one, and that each actually
+   * puts ink on the canvas — a silhouette that draws nothing is worse than an
+   * emoji, because it fails silently.
+   */
+  var icons = await page.evaluate(function () {
+    var shapes = {}, blank = [], missing = [];
+    IA.UnitData.UNITS.forEach(function (type) {
+      var name = IA.icons.nameFor(type.id);
+      if (!IA.icons.DRAW[name]) { missing.push(type.id); return; }
+      shapes[name] = (shapes[name] || 0) + 1;
+      // Rasterise and count how many pixels the drawing actually marked.
+      var c = document.createElement('canvas');
+      c.width = 32; c.height = 32;
+      IA.icons.paint(c.getContext('2d'), name, 0, 0, 32, '#ffffff');
+      var d = c.getContext('2d').getImageData(0, 0, 32, 32).data;
+      var lit = 0;
+      for (var i = 3; i < d.length; i += 4) if (d[i] > 40) lit++;
+      if (lit < 24) blank.push(type.id + ' (' + name + ', ' + lit + 'px)');
+    });
+    return {
+      units: IA.UnitData.UNITS.length,
+      shapes: Object.keys(shapes).length,
+      blank: blank, missing: missing,
+      total: IA.icons.names().length
+    };
+  });
+  if (icons.missing.length) fail('units with no icon: ' + icons.missing.join(', '));
+  if (icons.blank.length) fail('icons that draw nothing: ' + icons.blank.join(', '));
+  if (icons.shapes < 8) fail('only ' + icons.shapes + ' distinct unit silhouettes in use');
+  console.log('icons: ' + icons.units + ' units over ' + icons.shapes +
+    ' distinct drawn silhouettes, none blank');
+
   // Put fog back on for the rest of the run, so everything below is tested on
   // the path a default campaign actually takes.
   await page.evaluate(function () {

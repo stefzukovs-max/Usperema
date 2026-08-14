@@ -591,7 +591,7 @@
     prov.queue.forEach(function (job, i) {
       var type = UnitData.BY_ID[job.typeId];
       host.appendChild(el('div', { class: 'progress-row' }, [
-        el('div', { class: 'progress-label', text: type.icon + ' ' + type.name }),
+        el('div', { class: 'progress-label' }, [unitIcon(type.id, 15), el('span', { text: type.name })]),
         i === 0 ? progressBar(1 - job.remaining / job.total) : el('div', { class: 'progress-label dim', text: 'queued' }),
         el('div', { class: 'progress-time', text: util.fmtDuration(job.remaining) }),
         i === 0 ? el('button', {
@@ -614,7 +614,7 @@
       var check = IA.economy.canBuildUnitHere(state, prov, type);
       var afford = IA.economy.canAfford(nation, type.cost);
       host.appendChild(el('div', { class: 'build-row' }, [
-        el('span', { class: 'b-icon', text: type.icon }),
+        el('span', { class: 'b-icon' }, unitIcon(type.id, 22)),
         el('div', { class: 'b-main' }, [
           el('div', { class: 'b-name', text: type.name }),
           el('div', { class: 'b-desc', text: check.ok ? type.desc : check.why })
@@ -776,7 +776,7 @@
       var type = UnitData.BY_ID[g.typeId];
       var ratio = clamp(g.hp / (type.hp * g.count), 0, 1);
       unitList.appendChild(el('div', { class: 'unit-row' }, [
-        el('span', { class: 'u-icon', text: type.icon }),
+        el('span', { class: 'u-icon' }, unitIcon(type.id, 20)),
         el('div', { class: 'u-main' }, [
           el('div', { class: 'u-name', text: type.name + ' ×' + g.count }),
           progressBar(ratio, ratio > 0.6 ? 'ok' : ratio > 0.3 ? 'warn' : 'bad')
@@ -1770,6 +1770,21 @@
     if (prov.supply >= 3) return 'Secure';
     if (prov.supply >= 1.5) return 'Adequate';
     return 'Stretched';
+  }
+
+  /**
+   * A unit's silhouette as an image element.  The same drawings the map uses,
+   * so a battalion looks the same in the panel as it does on the ground.
+   */
+  function unitIcon(typeId, size, colour) {
+    var px = size || 18;
+    var img = doc.createElement('img');
+    img.className = 'u-glyph';
+    img.width = px;
+    img.height = px;
+    img.alt = '';
+    img.src = IA.icons.dataUrl(typeId, px * 2, colour || '#d8cfb4');
+    return img;
   }
 
   function stat(label, value) {

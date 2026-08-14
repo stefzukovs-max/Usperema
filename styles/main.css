@@ -645,3 +645,8 @@ input { font: inherit; }
 .tut-count { font-size: 11px; color: var(--dim); white-space: nowrap; }
 .tut-text { font-size: 13px; line-height: 1.5; color: var(--text); margin: 6px 0 9px; }
 .tut-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Unit silhouettes: the same drawings the map uses. */
+.u-glyph { display: block; opacity: .92; }
+.progress-label .u-glyph { display: inline-block; vertical-align: -2px; margin-right: 6px; }
+.b-icon .u-glyph, .u-icon .u-glyph { margin: 0 auto; }

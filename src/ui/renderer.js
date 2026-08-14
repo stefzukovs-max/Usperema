@@ -227,6 +227,19 @@
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
 
+  /*
+   * Ink that reads on a given ground.  Rec. 709 luminance, with the threshold
+   * set where a mid olive stops taking dark ink.
+   */
+  var inkCache = {};
+  function inkOn(hex) {
+    var hit = inkCache[hex];
+    if (hit) return hit;
+    var c = hexToRgb(hex);
+    var lum = (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255;
+    return (inkCache[hex] = lum > 0.52 ? 'rgba(10,12,8,0.94)' : 'rgba(246,240,224,0.95)');
+  }
+
   function mix(a, b, t) {
     var ca = hexToRgb(a), cb = hexToRgb(b);
     return 'rgb(' + Math.round(ca[0] + (cb[0] - ca[0]) * t) + ',' +
@@ -995,17 +1008,23 @@
     }
 
     /*
-     * A stack reads as a small standard: national colours on the hoist, the
-     * leading unit's mark, the battalion count on a badge, and a strength bar
-     * along the foot.  A stem points at the province it is standing in.
+     * A stack reads as a counter off a map table: a national colour bar down
+     * the hoist, the leading unit's silhouette, the battalion count, and a
+     * strength bar along the foot.  A stem points at the province it stands in.
+     *
+     * Two states have to be legible without selecting anything, because both
+     * change what you should do next: a stack that is out of supply, and one
+     * with an officer at its head.
      */
     function drawStack(c, army, x, y, bw, bh, uiRef) {
       var nation = state.nationById[army.ownerId];
       var strength = IA.state.armyStrength(army);
       var selected = uiRef && uiRef.selectedArmyId === army.id;
       var ratio = clamp(strength.ratio, 0, 1);
-      var hoist = bw * 0.3;
-      var barH = Math.max(2.5, bh * 0.18);
+      var hoist = bw * 0.30;
+      var barH = Math.max(2.5, bh * 0.16);
+      var starved = army.supplied === false;
+      var led = !!army.commanderId;
 
       c.save();
       c.translate(x, y);
@@ -1018,10 +1037,10 @@
       c.lineTo(0, bh / 2 + bh * 0.55);
       c.stroke();
 
-      c.shadowColor = 'rgba(0,0,0,0.5)';
-      c.shadowBlur = 4;
+      c.shadowColor = 'rgba(0,0,0,0.55)';
+      c.shadowBlur = 5;
       c.shadowOffsetY = 2;
-      c.fillStyle = 'rgba(16,26,36,0.96)';
+      c.fillStyle = starved ? 'rgba(46,26,22,0.96)' : 'rgba(22,26,22,0.96)';
       c.fillRect(-bw / 2, -bh / 2, bw, bh);
       c.shadowColor = 'transparent';
       c.shadowBlur = 0;
@@ -1030,21 +1049,39 @@
       c.fillStyle = nation ? nation.color : '#888';
       c.fillRect(-bw / 2, -bh / 2, hoist, bh);
 
+      // Strength along the foot.
       c.fillStyle = 'rgba(0,0,0,0.45)';
       c.fillRect(-bw / 2, bh / 2 - barH, bw, barH);
-      c.fillStyle = ratio > 0.6 ? '#6fe08a' : ratio > 0.3 ? '#e8b93f' : '#e2634f';
+      c.fillStyle = ratio > 0.6 ? '#7d9a5b' : ratio > 0.3 ? '#c98f3c' : '#b04a38';
       c.fillRect(-bw / 2, bh / 2 - barH, bw * ratio, barH);
 
-      var lead = army.units[0] ? UnitData.BY_ID[army.units[0].typeId] : null;
-      c.fillStyle = '#f2f7ff';
+      // The leading unit's silhouette, sitting on the national bar.  The ink
+      // follows the colour underneath it: the graph colouring hands out both
+      // pale yellows and near-black greens, and one ink cannot read on both.
+      var lead = army.units[0];
+      if (lead) {
+        IA.icons.drawUnit(c, lead.typeId, -bw / 2 + hoist / 2, -barH / 2,
+          Math.round(Math.min(hoist, bh - barH) * 0.94),
+          inkOn(nation ? nation.color : '#888'));
+      }
+
+      c.fillStyle = starved ? '#f0b6a6' : '#ece3cd';
       c.textBaseline = 'middle';
       c.textAlign = 'center';
-      c.font = 'bold ' + Math.round(bh * 0.46) + 'px sans-serif';
-      if (lead) c.fillText(lead.icon, -bw / 2 + hoist / 2, -barH / 2);
-      c.font = 'bold ' + Math.round(bh * 0.44) + 'px "Segoe UI", system-ui, sans-serif';
+      c.font = 'bold ' + Math.round(bh * 0.46) + 'px "Segoe UI", system-ui, sans-serif';
       c.fillText(String(IA.state.unitCount(army)), (hoist / 2) - 1, -barH / 2);
 
-      c.strokeStyle = selected ? '#7fe3ff' : (army.inCombat ? '#ff7a5f' : 'rgba(6,12,18,0.85)');
+      // A brass pip in the corner where an officer commands.
+      if (led) {
+        c.fillStyle = '#d9b455';
+        c.beginPath();
+        c.arc(bw / 2 - 3, -bh / 2 + 3, 2.4, 0, Math.PI * 2);
+        c.fill();
+      }
+
+      c.strokeStyle = selected ? '#e2c37a'
+        : army.inCombat ? '#b04a38'
+          : starved ? 'rgba(176,74,56,0.85)' : 'rgba(10,12,8,0.9)';
       c.lineWidth = selected || army.inCombat ? 2 : 1;
       c.strokeRect(-bw / 2, -bh / 2, bw, bh);
       c.restore();
