@@ -967,12 +967,47 @@
 
     this.drawWeather(ctx);
     if (z >= VECTOR_ZOOM) this.drawFog(ctx, ui);
+    this.drawFlips(ctx);
 
     this.drawNationLabels(ctx);
     this.drawProvinceMarkers(ctx, ui);
     this.drawPaths(ctx, ui);
     this.drawArmies(ctx, ui);
     this.drawLabels(ctx, ui);
+    ctx.restore();
+  };
+
+  /*
+   * Ground changing hands.
+   *
+   * A province simply became a different colour between one glance and the
+   * next, which is the most consequential thing that happens in the game and
+   * the easiest to miss.  For a few game hours after a capture the province is
+   * washed in the new owner's colour, fading out — enough to catch the eye
+   * without leaving a mark on the map afterwards.
+   */
+  var FLIP_HOURS = 6;
+
+  Renderer.prototype.drawFlips = function (ctx) {
+    var flips = this.state.flips;
+    if (!flips) return;
+    var state = this.state;
+    var box = this.viewBox(2);
+    ctx.save();
+    this.applyCamera(ctx);
+    for (var id in flips) {
+      var flip = flips[id];
+      var age = state.time - flip.at;
+      // Expired marks are dropped here rather than swept elsewhere: this is the
+      // only place that cares, and it runs every frame anyway.
+      if (age < 0 || age > FLIP_HOURS) { delete flips[id]; continue; }
+      var prov = state.provinces[id];
+      if (!prov || !overlaps(box, prov.bbox)) continue;
+      var nation = state.nationById[flip.by];
+      ctx.globalAlpha = 0.55 * (1 - age / FLIP_HOURS);
+      ctx.fillStyle = nation ? nation.color : '#ffffff';
+      ctx.fill(this.pathFor(prov));
+    }
     ctx.restore();
   };
 
@@ -1016,17 +1051,62 @@
         ctx.lineWidth = 2;
         ctx.stroke();
       }
-      if (state.battleProvinces && state.time - state.battleProvinces[p.id] < 1.01 && z > 2) {
-        ctx.save();
-        ctx.globalAlpha = 0.9;
-        ctx.font = Math.round(clamp(z * 1.6, 11, 22)) + 'px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('⚔', s.x, s.y - r - 10);
-        ctx.restore();
+      /*
+       * A province under fire.  This was a crossed-swords emoji, which reads as
+       * a label rather than as gunfire; it is now a shellburst that pulses on
+       * the frame clock and fades as the hour since the last exchange runs out,
+       * so a front that is actually being fought over flickers and one that has
+       * gone quiet simply stops.
+       */
+      if (state.battleProvinces && z > 2) {
+        var since = state.time - state.battleProvinces[p.id];
+        if (since >= 0 && since < 1.01) {
+          drawBurst(ctx, s.x, s.y, clamp(z * 0.9, 6, 17), 1 - since / 1.01, now());
+        }
       }
     }
   };
+
+  /**
+   * A shellburst: a hot core, a ring going out, and rays.  Drawn from the frame
+   * clock rather than the game clock so it pulses at the same rate whatever
+   * speed the war is running at.
+   */
+  function drawBurst(ctx, x, y, size, strength, t) {
+    var pulse = 0.62 + 0.38 * Math.sin(t * 0.017 + x * 0.4);
+    var a = strength * pulse;
+    if (a <= 0.02) return;
+    ctx.save();
+    ctx.translate(x, y);
+
+    var ring = size * (1.5 - strength * 0.5);
+    ctx.globalAlpha = a * 0.35;
+    ctx.strokeStyle = '#e8a24a';
+    ctx.lineWidth = Math.max(1, size * 0.12);
+    ctx.beginPath();
+    ctx.arc(0, 0, ring, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.globalAlpha = a * 0.9;
+    ctx.strokeStyle = '#ffd489';
+    ctx.lineWidth = Math.max(1, size * 0.16);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (var k = 0; k < 6; k++) {
+      var ang = (k / 6) * Math.PI * 2 + t * 0.0004;
+      var inner = size * 0.34, outer = size * (0.72 + 0.24 * pulse);
+      ctx.moveTo(Math.cos(ang) * inner, Math.sin(ang) * inner);
+      ctx.lineTo(Math.cos(ang) * outer, Math.sin(ang) * outer);
+    }
+    ctx.stroke();
+
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#fff2cd';
+    ctx.beginPath();
+    ctx.arc(0, 0, size * 0.28 * (0.8 + 0.2 * pulse), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 
   /**
    * March routes are drawn as a pale bed with a dashed stripe over it, so a

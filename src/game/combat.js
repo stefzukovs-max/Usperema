@@ -531,8 +531,11 @@
     prov.queue = [];
     var nn = state.nationById[newOwnerId];
     if (nn) nn.provinces.push(prov.id);
-    // Tell the renderer to repaint just this corner of the cached map.
+    // Tell the renderer to repaint just this corner of the cached map, and
+    // mark the moment so it can be shown changing rather than simply being
+    // a different colour the next time you look.
     (state.dirtyProvinces || (state.dirtyProvinces = [])).push(prov.id);
+    (state.flips || (state.flips = {}))[prov.id] = { at: state.time, by: newOwnerId };
     // Both sides' supply changed the moment the ground did.
     IA.economy.refreshSupply(state, oldOwnerId ? [oldOwnerId, newOwnerId] : [newOwnerId]);
 

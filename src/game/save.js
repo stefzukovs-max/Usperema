@@ -84,6 +84,7 @@
     IA.commanders.index(state);
     // Battles in progress are not saved; they re-form from the stacks present.
     state.battles = {};
+    state.flips = {};
     state.log = data.log || [];
     state.armies = data.armies || [];
     state.armySeq = data.armySeq || (state.armies.length + 1);
