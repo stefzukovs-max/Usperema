@@ -216,6 +216,39 @@ Saves store only what the war changed. Geography comes from the compiled map and
 terrain is a pure function of the seed, so loading rebuilds the world and
 replays the diff onto it.
 
+### What you see
+
+The ground is shaded. There is no elevation model in the map data, so the
+terrain each province already carries is treated as a description of it — a
+base height and a roughness — painted into a field, given fractal noise in
+proportion to how broken it is, and lit from the north-west. Shading is scaled
+by roughness rather than applied evenly: lit evenly, farmland picks up as much
+relief as the Alps and the whole map goes pale and mottled.
+
+Units are drawn, not typed. Thirteen silhouettes over nineteen units, built
+from canvas path commands — crossed rifles for foot, a horse's head for
+cavalry, a barrel and wheel for a field gun, a tracked hull for a landship.
+There is no image, font or emoji anywhere in the set. A stack marker carries
+the leading unit's silhouette, the battalion count, a strength bar, and two
+states you would otherwise have to select the stack to discover: out of supply,
+and an officer in command.
+
+**Map modes** put the simulation on the map. Six of them — political, terrain,
+supply, resources, diplomacy, morale — over the same geometry. Supply is the
+one that earns it: a few days into a campaign it shows which of your provinces
+are fed and which are cut off, at a glance, which previously required opening
+each one.
+
+Fighting is a shellburst that pulses on the frame clock and fades as the hour
+since the last exchange runs out, so a live front flickers and a quiet one
+stops. Ground changing hands — the most consequential thing that happens, and
+the easiest to miss — washes the province in the new owner's colour for six
+hours and fades.
+
+The technology tree is laid out by dependency depth with connectors drawn from
+the measured positions of the nodes, so it shows what needs what rather than
+saying so in prose.
+
 ### Rendering
 
 Province outlines are real vector paths, so borders stay crisp at any zoom.
