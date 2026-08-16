@@ -1185,44 +1185,117 @@
       ])));
     }
 
+    /*
+     * The tree, drawn as a tree.
+     *
+     * It was a flat list per branch, which threw away the one thing the data
+     * already knew: what depends on what.  Each branch is now laid out in
+     * columns by depth — everything with no prerequisite in the first column,
+     * everything that needs only those in the second — and the connectors are
+     * drawn from the measured positions of the nodes after layout, so they join
+     * the actual prerequisite rather than merely suggesting an order.
+     */
+    var depth = {};
+    function tierOf(t) {
+      if (depth[t.id] !== undefined) return depth[t.id];
+      depth[t.id] = 0;                       // guards a cycle in the data
+      var d = 0;
+      for (var i = 0; i < t.req.length; i++) {
+        var req = ResearchData.BY_ID[t.req[i]];
+        if (req) d = Math.max(d, tierOf(req) + 1);
+      }
+      return (depth[t.id] = d);
+    }
+    ResearchData.TECHS.forEach(tierOf);
+
+    var pending = [];
     ResearchData.BRANCHES.forEach(function (branch) {
       var techs = ResearchData.TECHS.filter(function (t) { return t.branch === branch.id; });
-      var list = el('div', { class: 'tech-list' });
+      if (!techs.length) return;
+      var tiers = [];
       techs.forEach(function (t) {
-        var done = !!nation.research[t.id];
-        var active = !!nation.researching && nation.researching.techId === t.id;
-        var open = IA.orders.techAvailable(nation, t);
-        var afford = IA.economy.canAfford(nation, t.cost);
-        var missing = t.req.filter(function (r) { return !nation.research[r]; })
-          .map(function (r) { return ResearchData.BY_ID[r].name; });
-        list.appendChild(el('div', { class: 'tech-row ' + (done ? 'done' : active ? 'active' : open ? 'open' : 'locked') }, [
-          el('div', { class: 'tech-main' }, [
-            el('div', { class: 'tech-name', text: t.name }),
-            el('div', {
-              class: 'tech-desc',
-              text: done ? 'Researched'
-                : active ? 'In progress — ' + util.fmtDuration(nation.researching.remaining) + ' remaining'
-                  : missing.length ? 'Requires ' + missing.join(', ') : t.desc
-            })
-          ]),
-          done ? el('span', { class: 'tech-done', text: '✓' })
-            : active ? el('span', { class: 'tech-active', text: '⏳' })
-              : el('button', {
-              class: 'build-btn' + (open && afford && !nation.researching ? '' : ' disabled'),
-              onclick: function () {
-                var r = IA.orders.startResearch(state, nation, t.id);
-                self.toast(r.ok ? 'Researching ' + t.name + '.' : r.why, r.ok ? 'ok' : 'warn');
-                self.refreshModal();
-              }
-            }, [
-              el('span', { text: 'Research' }),
-              el('span', { class: 'cost', text: costText(t.cost) }),
-              el('span', { class: 'cost dim', text: t.days + 'd' })
-            ])
-        ]));
+        var d = tierOf(t);
+        (tiers[d] || (tiers[d] = [])).push(t);
       });
-      wrap.appendChild(section(branch.icon + '  ' + branch.name, list));
+
+      var tree = el('div', { class: 'tree' });
+      var links = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      links.setAttribute('class', 'tree-links');
+      tree.appendChild(links);
+      var nodes = {};
+
+      tiers.forEach(function (column) {
+        var col = el('div', { class: 'tree-col' });
+        (column || []).forEach(function (t) {
+          var done = !!nation.research[t.id];
+          var active = !!nation.researching && nation.researching.techId === t.id;
+          var open = IA.orders.techAvailable(nation, t);
+          var afford = IA.economy.canAfford(nation, t.cost);
+          var missing = t.req.filter(function (r) { return !nation.research[r]; })
+            .map(function (r) { return ResearchData.BY_ID[r].name; });
+          var node = el('div', {
+            class: 'tech-node ' + (done ? 'done' : active ? 'active' : open ? 'open' : 'locked')
+          }, [
+            el('div', { class: 'tech-name', text: t.name }),
+            el('div', { class: 'tech-desc', text: t.desc }),
+            el('div', { class: 'tech-foot' }, [
+              el('span', { class: 'tech-cost', text: done ? 'Researched'
+                : active ? util.fmtDuration(nation.researching.remaining) + ' left'
+                  : missing.length ? 'Needs ' + missing.join(', ')
+                    : costLine(t.cost) + ' · ' + t.days + 'd' }),
+              (!done && !active && open) ? el('button', {
+                class: 'mini' + (afford ? ' ok' : ' disabled'),
+                text: 'Research',
+                onclick: function () {
+                  var r = IA.orders.startResearch(state, nation, t.id);
+                  self.toast(r.ok ? 'Research begun: ' + t.name : r.why, r.ok ? 'ok' : 'warn');
+                  self.refreshModal();
+                }
+              }) : null
+            ])
+          ]);
+          nodes[t.id] = node;
+          col.appendChild(node);
+        });
+        tree.appendChild(col);
+      });
+
+      pending.push({ tree: tree, links: links, nodes: nodes, techs: techs });
+      wrap.appendChild(section(branch.icon + '  ' + branch.name, tree));
     });
+
+    /*
+     * Connectors are drawn once the browser has laid the columns out; there is
+     * no way to know where a node sits before that.
+     */
+    global.requestAnimationFrame(function () {
+      pending.forEach(function (b) {
+        var box = b.tree.getBoundingClientRect();
+        if (!box.width) return;
+        b.links.setAttribute('viewBox', '0 0 ' + box.width + ' ' + box.height);
+        b.links.setAttribute('width', box.width);
+        b.links.setAttribute('height', box.height);
+        b.techs.forEach(function (t) {
+          var to = b.nodes[t.id];
+          if (!to) return;
+          var tb = to.getBoundingClientRect();
+          t.req.forEach(function (id) {
+            var from = b.nodes[id];
+            if (!from) return;
+            var fb = from.getBoundingClientRect();
+            var x1 = fb.right - box.left, y1 = fb.top + fb.height / 2 - box.top;
+            var x2 = tb.left - box.left, y2 = tb.top + tb.height / 2 - box.top;
+            var mid = (x1 + x2) / 2;
+            var path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + mid + ',' + y1 +
+              ' ' + mid + ',' + y2 + ' ' + x2 + ',' + y2);
+            path.setAttribute('class', nation.research[id] ? 'link done' : 'link');
+            b.links.appendChild(path);
+          });
+        });
+      });
+    });
+
     return wrap;
   };
 
@@ -1826,6 +1899,16 @@
     img.alt = '';
     img.src = IA.icons.dataUrl(typeId, px * 2, colour || '#d8cfb4');
     return img;
+  }
+
+  /** Costs in one short line, for somewhere there is no room for a table. */
+  function costLine(cost) {
+    var parts = [];
+    for (var k in cost) {
+      var meta = UnitData.RESOURCE_META[k];
+      parts.push((meta ? meta.icon : '') + util.fmt(cost[k]));
+    }
+    return parts.join(' ');
   }
 
   function stat(label, value) {

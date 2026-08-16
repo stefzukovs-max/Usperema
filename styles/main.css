@@ -674,3 +674,34 @@ input { font: inherit; }
 .legend-title { font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin-bottom: 5px; }
 .legend-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
 .legend-chip { width: 14px; height: 9px; border-radius: 2px; border: 1px solid rgba(0,0,0,.5); flex: 0 0 auto; }
+
+/* The technology tree, laid out by dependency depth. */
+.tree {
+  position: relative; display: flex; gap: 26px; align-items: flex-start;
+  overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: thin;
+}
+.tree-links { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+.tree-links .link { fill: none; stroke: var(--line); stroke-width: 1.6; }
+.tree-links .link.done { stroke: var(--good); stroke-width: 2; opacity: .85; }
+.tree-col { display: flex; flex-direction: column; gap: 10px; flex: 0 0 auto; position: relative; z-index: 1; }
+.tech-node {
+  width: 208px; background: var(--panel); border: 1px solid var(--line);
+  border-left-width: 3px; border-radius: var(--radius); padding: 9px 11px;
+}
+.tech-node.done { border-left-color: var(--good); background: rgba(125,154,91,.1); }
+.tech-node.active { border-left-color: var(--accent); background: rgba(200,162,74,.12); }
+.tech-node.open { border-left-color: var(--dim); }
+.tech-node.locked { opacity: .5; }
+.tech-node .tech-name { font-weight: 600; font-size: 13px; }
+.tech-node .tech-desc { font-size: 11px; color: var(--dim); margin: 4px 0 7px; line-height: 1.4; }
+.tech-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tech-cost { font-size: 11px; color: var(--dim); }
+
+/* On a phone the tree has to show that it branches, which means fitting more
+   than one column on screen; the nodes give up width before the shape does. */
+@media (max-width: 620px) {
+  .tree { gap: 16px; }
+  .tech-node { width: 156px; padding: 8px 9px; }
+  .tech-node .tech-name { font-size: 12px; }
+  .tech-node .tech-desc { font-size: 10px; margin: 3px 0 6px; }
+}
