@@ -262,6 +262,19 @@
 
   function touchArmies(state) { state.armyEpoch++; }
 
+  /**
+   * The one supported way to take a stack off the board.  Splicing `state.armies`
+   * by hand leaves the province index serving a stale epoch, so callers outside
+   * this module go through here.
+   */
+  function removeArmy(state, army) {
+    var at = state.armies.indexOf(army);
+    if (at < 0) return false;
+    state.armies.splice(at, 1);
+    touchArmies(state);
+    return true;
+  }
+
   /** Armies holding position in a province (those in transit are excluded). */
   function armiesIn(state, provinceId) {
     var here = armyIndex(state)[provinceId];
@@ -387,7 +400,7 @@
     spawnArmy: spawnArmy, province: province, nation: nation,
     armiesIn: armiesIn, allArmiesAt: allArmiesAt, armiesOf: armiesOf, armyById: armyById,
     armyStrength: armyStrength, armyPower: armyPower, nationPower: nationPower,
-    armyIndex: armyIndex, touchArmies: touchArmies,
+    armyIndex: armyIndex, touchArmies: touchArmies, removeArmy: removeArmy,
     unitCount: unitCount, treaty: treaty, atWar: atWar, isHostile: isHostile,
     recomputeVP: recomputeVP, cue: cue, pushLog: pushLog, defaultArmyName: defaultArmyName,
     START_RESOURCES: START_RESOURCES, SPEEDS: SPEEDS

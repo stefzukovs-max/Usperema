@@ -17,6 +17,59 @@
   var DAMAGE_SCALE = 0.45;     // global pacing knob for how fast stacks melt
   var RETREAT_RATIO = 0.15;
 
+  /*
+   * The front line.
+   *
+   * This is a war of 1914 and until now it had no line in it: stacks fought
+   * wherever they met and a province was as defensible standing alone as it was
+   * shoulder to shoulder with the rest of an army.  That is the one place the
+   * design did not match its own subject.
+   *
+   * A position is anchored by the dug-in friendly positions beside it.  Hold a
+   * continuous line and every province in it is expensive to take from the
+   * front; push a salient out and it is attacked from three sides at once and
+   * pays for it.  The consequence that matters is what happens when one
+   * province does fall: its neighbours lose an anchor, which makes them cheaper
+   * to take in turn, which is a breakthrough — the line does not bend, it goes.
+   */
+  var ANCHOR_BONUS = 0.30;     // defence per dug-in neighbour, up to three
+  var MAX_ANCHORS = 3;
+  var SALIENT_PENALTY = 0.55;  // at most, for a position hostile on every side
+  var DUG_IN = 0.30;           // entrenchment at which a neighbour counts as an anchor
+
+  /**
+   * How well a defender in `prov` is held by the line around it.  Returns a
+   * multiplier on defence: above one when anchored, below one in a salient.
+   */
+  function lineFactor(state, prov, ownerId) {
+    if (prov.isSea) return 1;
+    var anchors = 0, hostile = 0, land = 0;
+    for (var i = 0; i < prov.neighbors.length; i++) {
+      var np = state.provinces[prov.neighbors[i]];
+      if (np.isSea) continue;
+      land++;
+      var friendlyGround = np.nationId === ownerId ||
+        (np.nationId && IA.state.treaty(state, ownerId, np.nationId) === 'alliance');
+      var anchored = false, threat = false;
+      var here = IA.state.armiesIn(state, np.id);
+      for (var a = 0; a < here.length; a++) {
+        var army = here[a];
+        if (IA.state.isHostile(state, ownerId, army.ownerId)) { threat = true; continue; }
+        if (army.ownerId === ownerId || friendlyGround) {
+          if ((army.entrench || 0) >= DUG_IN) anchored = true;
+        }
+      }
+      if (anchored && friendlyGround) anchors++;
+      if (threat || (np.nationId && !friendlyGround &&
+        IA.state.isHostile(state, ownerId, np.nationId))) hostile++;
+    }
+    if (!land) return 1;
+    var held = 1 + ANCHOR_BONUS * Math.min(anchors, MAX_ANCHORS);
+    // Exposure only starts to bite once most of the way round is hostile.
+    var exposure = Math.max(0, hostile / land - 0.5) * 2;
+    return held * (1 - SALIENT_PENALTY * exposure);
+  }
+
   function unitsAlive(army) {
     var out = [];
     for (var i = 0; i < army.units.length; i++) if (army.units[i].hp > 0.001) out.push(army.units[i]);
@@ -139,6 +192,8 @@
       var fus = unitsAlive(farmy);
       var entrench = farmy.entrench || 0;
       var fled = IA.commanders.effectOf(state, farmy);
+      var line = lineFactor(state, prov, farmy.ownerId);
+      farmy.line = line;
       for (var v = 0; v < fus.length; v++) {
         var fg = fus[v];
         var ft = UnitData.BY_ID[fg.typeId];
@@ -146,7 +201,7 @@
         var defVal = (ft.def[defCat] || 1);
         defVal *= (ft.domain === 'land' && !prov.isSea) ? terrainDef : 1;
         defVal *= 1 + entrench * 0.45 + bunker;
-        defVal *= fled.defence;
+        defVal *= fled.defence * line;
         if (foeNation) defVal *= 1 + techDefBonus(foeNation, ft);
         var dmg = raw * share * (DEF_K / (DEF_K + defVal)) * fled.damageTaken;
         fg.hp -= dmg;
@@ -617,6 +672,7 @@
   IA.combat = {
     tick: tick, transferProvince: transferProvince, checkElimination: checkElimination,
     provinceDistance: provinceDistance, maxRange: maxRange, MAX_REPORTS: MAX_REPORTS,
+    lineFactor: lineFactor, ANCHOR_BONUS: ANCHOR_BONUS, MAX_ANCHORS: MAX_ANCHORS,
     captureHours: captureHours, reconcile: reconcile, composition: composition,
     dominantCat: dominantCat
   };

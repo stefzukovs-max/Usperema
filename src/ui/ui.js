@@ -723,6 +723,7 @@
     wrap.appendChild(el('div', { class: 'readout-stats' }, [
       readStat('♥', Math.round(ratio * 100) + '%', 'Condition'),
       readStat('\u{1F6E1}', '+' + Math.round(army.entrench * 45) + '%', 'Entrenchment bonus'),
+      lineStat(state, army, prov),
       readStat('⋙', speed.toFixed(2), 'Provinces per hour, in this terrain'),
       readStat('⚡', attack.toFixed(1), 'Attack strength'),
       readStat('⛨', defence.toFixed(1), 'Defence strength'),
@@ -1854,6 +1855,22 @@
   }
 
   /** One icon-and-number cell in the army readout strip. */
+
+  /*
+   * How the neighbouring provinces are shaping this position.  Dug-in friends on
+   * the flanks hold the line; enemies on most sides make a salient of it, and
+   * either way the number is the same one the defence roll uses.
+   */
+  function lineStat(state, army, prov) {
+    if (prov.isSea || !IA.combat.lineFactor) return null;
+    var line = IA.combat.lineFactor(state, prov, army.ownerId);
+    var pct = Math.round((line - 1) * 100);
+    if (!pct) return readStat('\u2261', 'even', 'Front line: neither anchored nor exposed');
+    return readStat(pct > 0 ? '\u2261' : '\u2262', (pct > 0 ? '+' : '') + pct + '%',
+      pct > 0 ? 'Front line: flanks anchored by dug-in neighbours'
+        : 'Front line: exposed salient, enemies on most sides');
+  }
+
   function readStat(icon, value, title) {
     return el('div', { class: 'read-stat', title: title }, [
       el('span', { class: 'rs-icon', text: icon }),

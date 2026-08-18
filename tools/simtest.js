@@ -143,11 +143,7 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
   check('the capital still feeds itself', cap.inSupply === true);
 
   // Put the world back before the real run starts.
-  planted.forEach(function (a) {
-    var at = state.armies.indexOf(a);
-    if (at >= 0) state.armies.splice(at, 1);
-  });
-  IA.combat.reconcile(state);
+  planted.forEach(function (a) { IA.state.removeArmy(state, a); });
   IA.economy.refreshSupply(state);
   check('supply comes back once the road is clear',
     player.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length === before);
@@ -484,6 +480,66 @@ if (player.alive && player.provinces.length) {
   var mres = IA.market.buy(state, player, 'oil', 100);
   check('player can trade', mres.ok, mres.why);
 }
+
+/*
+ * The front line.
+ *
+ * The claim is that a position held shoulder to shoulder is expensive to take
+ * from the front and a salient is not, so both are constructed directly rather
+ * than waited for: the same province is measured alone, then with dug-in
+ * neighbours beside it, then surrounded.
+ */
+(function () {
+  var me = state.nationById[state.playerId];
+  var cap = state.provinces[me.capitalProvince];
+  var foe = state.nations.filter(function (n) {
+    return n.alive && IA.state.atWar(state, me.id, n.id);
+  })[0];
+  if (!foe) { check('there is a war to test the line in', false); return; }
+
+  var neighbours = cap.neighbors
+    .map(function (id) { return state.provinces[id]; })
+    .filter(function (p) { return !p.isSea; });
+  if (neighbours.length < 2) { check('the capital has land neighbours', false); return; }
+
+  var planted = [];
+  function clear() {
+    planted.forEach(function (a) { IA.state.removeArmy(state, a); });
+    planted = [];
+  }
+
+  // Alone: no dug-in friends beside it, nobody pressing.
+  var alone = IA.combat.lineFactor(state, cap, me.id);
+
+  // Anchored: friendly stacks dug in on the neighbouring ground we own.
+  var anchors = 0;
+  neighbours.forEach(function (np) {
+    if (np.nationId !== me.id || anchors >= IA.combat.MAX_ANCHORS) return;
+    var a = IA.state.spawnArmy(state, me.id, np.id, [{ typeId: 'line_infantry', count: 1 }]);
+    a.entrench = 1;
+    planted.push(a);
+    anchors++;
+  });
+  var anchored = anchors ? IA.combat.lineFactor(state, cap, me.id) : alone;
+  check('a position held shoulder to shoulder defends better',
+    anchors === 0 || anchored > alone + 0.01, alone.toFixed(2) + ' -> ' + anchored.toFixed(2));
+  check('and the anchor bonus is bounded',
+    anchored <= 1 + IA.combat.ANCHOR_BONUS * IA.combat.MAX_ANCHORS + 0.001, String(anchored));
+  clear();
+
+  // A salient: hostile stacks on every side and nobody beside us.
+  neighbours.forEach(function (np) {
+    planted.push(IA.state.spawnArmy(state, foe.id, np.id, [{ typeId: 'line_infantry', count: 1 }]));
+  });
+  var salient = IA.combat.lineFactor(state, cap, me.id);
+  check('a salient is punished for it', salient < alone - 0.01,
+    alone.toFixed(2) + ' -> ' + salient.toFixed(2));
+  clear();
+
+  check('the line is back to where it started',
+    Math.abs(IA.combat.lineFactor(state, cap, me.id) - alone) < 1e-9);
+  IA.economy.refreshSupply(state);
+})();
 
 // Supply that never binds is supply nobody has to think about.
 check('supply lines get cut over a war of this length', sawCutOff > 0);

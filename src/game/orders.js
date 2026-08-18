@@ -231,9 +231,7 @@
     }
     // The officer comes across with his men if the receiving stack has none.
     IA.commanders.transfer(state, source, target);
-    var idx = state.armies.indexOf(source);
-    if (idx >= 0) state.armies.splice(idx, 1);
-    IA.state.touchArmies(state);
+    IA.state.removeArmy(state, source);
     target.entrench = Math.min(target.entrench, source.entrench);
     return { ok: true };
   }
