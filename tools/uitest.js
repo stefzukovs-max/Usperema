@@ -573,12 +573,44 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   else console.log('save/load round trip ok (day ' + roundTrip.day + ')');
   await page.waitForTimeout(600);
 
-  // Desktop layout pass.
+  /*
+   * Desktop layout pass.  No explicit resize() here on purpose — on a wide
+   * screen the detail panel takes a column out of the map rather than a slice
+   * off the bottom, and the canvas has to notice that by itself or the world
+   * comes out stretched.
+   */
   await page.setViewportSize({ width: 1280, height: 860 });
-  await page.waitForTimeout(400);
-  await page.evaluate(function () { IA.UI.renderer.resize(); });
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(700);
   await page.screenshot({ path: path.join(SHOTS, '06-desktop.png') });
+
+  var wide = await page.evaluate(function () {
+    function box(id) { return document.getElementById(id).getBoundingClientRect(); }
+    var out = { open: { map: box('map'), panel: box('panel') }, nav: box('bottomNav') };
+    out.canvas = { css: box('map').width, backing: document.getElementById('map').width };
+    out.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    IA.UI.clearSelection();
+    return new Promise(function (done) {
+      setTimeout(function () { out.shut = { map: box('map') }; done(out); }, 400);
+    });
+  });
+  if (wide.open.panel.left < wide.open.map.right - 1) {
+    fail('the detail panel overlaps the map instead of docking beside it');
+  } else if (wide.open.panel.height < 600) {
+    fail('the docked panel is only ' + Math.round(wide.open.panel.height) + 'px tall');
+  } else if (wide.nav.height < wide.nav.width) {
+    fail('the navigation is still a bottom bar on a wide screen');
+  } else if (wide.shut.map.width <= wide.open.map.width + 100) {
+    fail('closing the panel does not give the map its column back');
+  } else if (Math.abs(wide.canvas.backing - wide.canvas.css * wide.dpr) > 2) {
+    fail('the map canvas did not follow its box (' + Math.round(wide.canvas.css * wide.dpr) +
+      ' wanted, ' + wide.canvas.backing + ' drawn)');
+  } else {
+    console.log('desktop: map ' + Math.round(wide.open.map.width) + 'px beside a ' +
+      Math.round(wide.open.panel.width) + 'px column, ' + Math.round(wide.shut.map.width) +
+      'px with the panel shut, nav rail ' + Math.round(wide.nav.width) + 'px wide');
+  }
+  await page.evaluate(function () { IA.UI.selectProvince(IA.game.current.nationById[IA.game.current.playerId].capitalProvince); });
+  await page.waitForTimeout(300);
 
   // No horizontal overflow anywhere.
   var overflow = await page.evaluate(function () {

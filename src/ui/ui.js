@@ -196,6 +196,17 @@
 
     global.addEventListener('resize', function () { self.renderer.resize(); });
 
+    /*
+     * The window is not the only thing that changes the size of the map: so
+     * does opening the panel, on either layout.  Watching the canvas itself
+     * catches all of them, and keeps the backing store from going stale and
+     * stretching the world.
+     */
+    if (global.ResizeObserver) {
+      var ro = new global.ResizeObserver(function () { self.renderer.resize(); });
+      ro.observe(self.canvas);
+    }
+
     doc.addEventListener('keydown', function (e) {
       if (e.target && /input|textarea/i.test(e.target.tagName)) return;
       if (e.key === 'Escape') {
@@ -283,11 +294,22 @@
     this.renderPanel();
   };
 
+  /**
+   * Opening the panel changes the shape of the map — it takes height on a
+   * phone and a whole column on a desktop — so the two move together, and the
+   * grid needs to know as well.
+   */
+  UI.setPanelOpen = function (open) {
+    doc.getElementById('panel').classList.toggle('open', !!open);
+    var game = doc.getElementById('game');
+    if (game) game.classList.toggle('panel-open', !!open);
+  };
+
   UI.clearSelection = function () {
     this.selectedProvinceId = null;
     this.selectedArmyId = null;
     this.setTargeting(null);
-    doc.getElementById('panel').classList.remove('open');
+    this.setPanelOpen(false);
   };
 
   UI.setTargeting = function (mode) {
@@ -429,7 +451,6 @@
   // --- selection panel -----------------------------------------------------
 
   UI.renderPanel = function () {
-    var panel = doc.getElementById('panel');
     var body = doc.getElementById('panelBody');
     var title = doc.getElementById('panelTitle');
     var sub = doc.getElementById('panelSub');
@@ -442,10 +463,10 @@
       var owner = this.state.nationById[army.ownerId];
       sub.textContent = owner.name + ' — ' + this.state.provinces[army.provinceId].name;
       body.appendChild(this.buildArmyPanel(army));
-      panel.classList.add('open');
+      this.setPanelOpen(true);
       return;
     }
-    if (this.selectedProvinceId === null) { panel.classList.remove('open'); return; }
+    if (this.selectedProvinceId === null) { this.setPanelOpen(false); return; }
 
     var prov = this.state.provinces[this.selectedProvinceId];
     title.textContent = prov.name;
@@ -453,7 +474,7 @@
       : prov.nationId ? this.state.nationById[prov.nationId].name : 'Unclaimed territory';
     sub.textContent = ownerName + (prov.isSea ? '' : ' — ' + IA.worldgen.TERRAIN[prov.terrain].name);
     body.appendChild(this.buildProvincePanel(prov));
-    panel.classList.add('open');
+    this.setPanelOpen(true);
   };
 
   /**

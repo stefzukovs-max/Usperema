@@ -43,6 +43,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 700; }
 input { font: inherit; }
 
 .screen { display: none; position: fixed; inset: 0; }
+#game { --dock: 400px; --rail: 96px; }
 .screen.show { display: flex; }
 
 /* ------------------------------------------------------------------- menu */
@@ -475,8 +476,72 @@ input { font: inherit; }
 }
 
 @media (min-width: 900px) {
-  .panel.open { max-height: 46vh; }
   .modal-body { padding: 18px; }
+}
+
+/* ------------------------------------------------------------- desktop */
+
+/*
+ * On a wide screen the phone stack is the wrong shape: a letterboxed map with
+ * half the height given to a panel that only needs a column, and five nav
+ * buttons stretched across two thousand pixels.  So the whole thing becomes a
+ * three-column grid — a navigation rail, the map, and the detail column — with
+ * the map taking every pixel the other two do not need.
+ */
+@media (min-width: 1000px) {
+  #game.show {
+    display: grid;
+    grid-template-columns: var(--rail) minmax(0, 1fr) 0;
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "top top top" "nav map panel";
+    transition: grid-template-columns .18s ease-out;
+  }
+  #game.panel-open { grid-template-columns: var(--rail) minmax(0, 1fr) var(--dock); }
+
+  #topbar { grid-area: top; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; padding: 7px 14px; }
+  .top-row { margin-bottom: 0; flex: 0 0 auto; gap: 14px; }
+  .hud-clock { margin-left: 0; }
+  /* Sits hard right beside the clock while the row has room for it, and drops
+     to a line of its own when it does not.  It must never shrink: a clipped
+     stockpile is worse than a second row. */
+  .resource-strip { flex: 0 0 auto; margin-left: auto; overflow: visible; }
+
+  #mapWrap { grid-area: map; }
+  .toasts { right: auto; width: min(430px, 40%); }
+
+  /* The rail: the same five destinations, stacked and always legible. */
+  #bottomNav {
+    grid-area: nav; flex-direction: column; padding-bottom: 0;
+    border-top: none; border-right: 1px solid var(--line);
+    background: linear-gradient(180deg, #262419, #14130e);
+  }
+  #bottomNav .nav-btn {
+    flex: 0 0 auto; padding: 13px 4px; gap: 4px; font-size: 11px;
+    border-right: none; border-bottom: 1px solid rgba(255,255,255,.05);
+  }
+  #bottomNav .nav-icon { font-size: 21px; }
+  #bottomNav .nav-badge { top: 8px; right: 12px; margin-right: 0; }
+
+  /* The detail column, full height and scrolling on its own. */
+  #panel {
+    grid-area: panel; max-height: none; min-width: 0; overflow: hidden;
+    border-top: none; border-left: 1px solid var(--line);
+    display: flex; flex-direction: column; transition: none;
+  }
+  #panel:not(.open) { border-left-color: transparent; }
+  #panel .panel-head { padding: 12px 14px 10px; }
+  #panel .panel-body { flex: 1 1 auto; padding: 12px 14px 20px; }
+  .panel-title { font-size: 17px; }
+
+  /* A column is narrow, so the grids inside it want fewer, wider cells. */
+  #panel .stat-grid { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+  #panel .action-row { grid-template-columns: repeat(auto-fit, minmax(66px, 1fr)); }
+}
+
+/* Wider still: the column can afford to be a proper reading width. */
+@media (min-width: 1500px) {
+  #game.show { --dock: 460px; --rail: 108px; }
+  .toasts { width: min(480px, 32%); }
 }
 
 /* ------------------------------------------------------- confirmation box */
