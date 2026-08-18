@@ -144,6 +144,9 @@
     return 'grain';
   }
 
+  /** A body of water smaller than this leads nowhere: a lake, not a sea. */
+  var LAKE_MAX = 3;
+
   function cityLevelFor(topCity) {
     if (topCity >= 5000) return 5;
     if (topCity >= 1500) return 4;
@@ -214,6 +217,44 @@
       provinces[i] = prov;
     }
 
+    /*
+     * Lakes are not the sea.
+     *
+     * The map compiler calls any water a sea zone, so an Alpine lake ends up
+     * looking like an anchorage — which would let a squadron blockade
+     * Switzerland.  Water that leads nowhere is marked as such, and everything
+     * to do with shipping ignores it.
+     */
+    var seaSeen = {};
+    for (i = 0; i < map.provinceCount; i++) {
+      if (!provinces[i].isSea || seaSeen[i]) continue;
+      var stack = [i], body = [];
+      seaSeen[i] = true;
+      while (stack.length) {
+        var at = stack.pop();
+        body.push(at);
+        var nbrs = provinces[at].neighbors;
+        for (var q = 0; q < nbrs.length; q++) {
+          if (provinces[nbrs[q]].isSea && !seaSeen[nbrs[q]]) {
+            seaSeen[nbrs[q]] = true;
+            stack.push(nbrs[q]);
+          }
+        }
+      }
+      var lake = body.length < LAKE_MAX;
+      for (var t = 0; t < body.length; t++) provinces[body[t]].isLake = lake;
+    }
+    // And a province is a seaport only if the water it touches goes somewhere.
+    for (i = 0; i < map.provinceCount; i++) {
+      var lp = provinces[i];
+      lp.seaport = false;
+      if (lp.isSea || !lp.coastal) continue;
+      for (var ln = 0; ln < lp.neighbors.length; ln++) {
+        var lw = provinces[lp.neighbors[ln]];
+        if (lw.isSea && !lw.isLake) { lp.seaport = true; break; }
+      }
+    }
+
     // --- nations ----------------------------------------------------------
     var nations = [];
     for (i = 0; i < map.nations.length; i++) {
@@ -281,6 +322,29 @@
       n.aggression = clamp(rng.range(0.22, 0.62) + weight * 0.18, 0.15, 0.85);
     }
     nations = nations.filter(function (x) { return x.alive; });
+
+    /*
+     * The infrastructure of 1914.
+     *
+     * A world that starts with no buildings anywhere is a world where every
+     * port city is a beach and every capital is reachable only on foot, which
+     * makes an overseas empire an unsupplied liability from the first hour.  So
+     * the map begins with what a city of that size would already have had: a
+     * harbour if it is a port, a railway yard if it is a junction.  Nothing is
+     * given to ground nobody owns.
+     */
+    for (i = 0; i < map.provinceCount; i++) {
+      var b = provinces[i];
+      if (b.isSea || !b.nationId) continue;
+      if (b.seaport && b.cityLevel >= 3) {
+        b.buildings.harbour = b.cityLevel >= 5 ? 3 : b.cityLevel >= 4 ? 2 : 1;
+      }
+      if (b.cityLevel >= 4) b.buildings.railway = b.cityLevel >= 5 ? 2 : 1;
+      if (b.isCapital) {
+        b.buildings.railway = Math.max(b.buildings.railway || 0, 2);
+        if (b.coastal) b.buildings.harbour = Math.max(b.buildings.harbour || 0, 2);
+      }
+    }
 
     return {
       mapW: map.mapW,

@@ -13,7 +13,12 @@
   var TERRAIN = IA.worldgen.TERRAIN;
   var Heap = IA.util.Heap;
 
-  var SEA_TRANSPORT_SPEED = 0.55;
+  /*
+   * Ships are the fastest thing on this map, and have to be: a sea zone spans
+   * far more ground than a province, so at a marching pace a squadron spends a
+   * month reaching its station and the naval war never happens at all.
+   */
+  var SEA_TRANSPORT_SPEED = 1.7;
 
   /** 'land' | 'sea' | 'air' — what kind of terrain this stack operates on. */
   function armyDomain(army) {

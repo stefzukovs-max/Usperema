@@ -324,10 +324,31 @@
           { colour: '#8f2f22', label: 'Close to revolt' }
         ];
       }
+    },
+    blockade: {
+      name: 'Blockade', hint: 'Which ports are shut, and whose fleet holds the water.',
+      seaControl: true,
+      fill: function (r, prov) {
+        if (!prov.seaport) return prov.nationId ? '#35342d' : '#2b2a25';
+        if (prov.blockaded) return '#8f2f22';
+        return prov.nationId === r.state.playerId ? '#6ba884' : '#4a6f86';
+      },
+      key: function (r, prov) {
+        if (!prov.seaport) return prov.nationId ? 'inland' : '-';
+        return prov.blockaded ? 'shut' : prov.nationId === r.state.playerId ? 'mine' : 'open';
+      },
+      legend: function () {
+        return [
+          { colour: '#6ba884', label: 'Your port, open' },
+          { colour: '#4a6f86', label: 'Other port, open' },
+          { colour: '#8f2f22', label: 'Blockaded' },
+          { colour: '#35342d', label: 'No harbour' }
+        ];
+      }
     }
   };
 
-  var MODE_ORDER = ['political', 'terrain', 'supply', 'resources', 'diplomacy', 'unrest'];
+  var MODE_ORDER = ['political', 'terrain', 'supply', 'resources', 'diplomacy', 'unrest', 'blockade'];
 
   var DEPOSIT_COLOUR = {
     grain: '#b9b055', timber: '#5f7f4c', coal: '#4b4a45',
@@ -941,6 +962,43 @@
     ctx.restore();
   };
 
+  /*
+   * Who holds the water.
+   *
+   * Drawn live rather than baked into the base raster, because fleets move and
+   * a blockade that took three days to form should show the hour it does.  Only
+   * the zones that actually have ships in them are touched, so this costs
+   * nothing on a map where nobody has put to sea.
+   */
+  Renderer.prototype.drawSeaControl = function (ctx) {
+    var state = this.state;
+    if (!state.seaControl) return;
+    var box = this.viewBox(2);
+    ctx.save();
+    this.applyCamera(ctx);
+    for (var id in state.seaControl) {
+      var prov = state.provinces[id];
+      if (!prov || !overlaps(box, prov.bbox)) continue;
+      var fleets = IA.naval.fleetsIn(state, prov.id);
+      if (!fleets.length) continue;
+      var top = state.nationById[fleets[0].nationId];
+      if (!top) continue;
+      var path = this.pathFor(prov);
+      ctx.globalAlpha = 0.34;
+      ctx.fillStyle = top.color;
+      ctx.fill(path);
+      // Water the player's own shipping can no longer use is marked as closed,
+      // which is the only thing about somebody else's navy that matters.
+      ctx.globalAlpha = 1;
+      if (!IA.naval.passable(state, state.playerId, prov.id)) {
+        ctx.lineWidth = 2 / this.camera.zoom;
+        ctx.strokeStyle = 'rgba(200,60,44,.85)';
+        ctx.stroke(path);
+      }
+    }
+    ctx.restore();
+  };
+
   Renderer.prototype.draw = function (ui) {
     var state = this.state;
     if (state.dirtyProvinces && state.dirtyProvinces.length) {
@@ -966,6 +1024,7 @@
     }
 
     this.drawWeather(ctx);
+    if (this.modeSpec().seaControl) this.drawSeaControl(ctx);
     if (z >= VECTOR_ZOOM) this.drawFog(ctx, ui);
     this.drawFlips(ctx);
 

@@ -172,7 +172,7 @@
     // --- Sea -------------------------------------------------------------
     {
       id: 'transport', name: 'Troop Transport', short: 'TRP', cat: 'sea', domain: 'sea', icon: '⛴',
-      hp: 40, speed: 1.05, range: 0, view: 14,
+      hp: 40, speed: 2.6, range: 0, view: 14,
       atk: { inf: 0.5, arm: 0.5, air: 0.5, sea: 0.8 },
       def: { inf: 4.0, arm: 4.0, air: 4.0, sea: 3.0 },
       cost: { manpower: 140, timber: 300, iron: 320, coal: 180, money: 2600 },
@@ -182,7 +182,7 @@
     },
     {
       id: 'destroyer', name: 'Destroyer', short: 'DD', cat: 'sea', domain: 'sea', icon: '⚓',
-      hp: 55, speed: 1.35, range: 1, view: 26,
+      hp: 55, speed: 4.2, range: 1, view: 26,
       atk: { inf: 6.0, arm: 5.0, air: 5.0, sea: 12.0 },
       def: { inf: 9.0, arm: 9.0, air: 8.0, sea: 10.0 },
       cost: { manpower: 220, iron: 700, coal: 400, oil: 120, money: 5400 },
@@ -192,7 +192,7 @@
     },
     {
       id: 'submarine', name: 'Submarine', short: 'SUB', cat: 'sea', domain: 'sea', icon: '◢',
-      hp: 34, speed: 0.90, range: 0, view: 12,
+      hp: 34, speed: 2.8, range: 0, view: 12,
       atk: { inf: 1.5, arm: 1.5, air: 0.4, sea: 22.0 },
       def: { inf: 4.0, arm: 4.0, air: 11.0, sea: 5.0 },
       cost: { manpower: 160, iron: 620, coal: 220, oil: 260, money: 6000 },
@@ -202,7 +202,7 @@
     },
     {
       id: 'cruiser', name: 'Armoured Cruiser', short: 'CA', cat: 'sea', domain: 'sea', icon: '✦',
-      hp: 80, speed: 1.10, range: 1, view: 30,
+      hp: 80, speed: 3.4, range: 1, view: 30,
       atk: { inf: 11.0, arm: 9.0, air: 5.0, sea: 16.0 },
       def: { inf: 13.0, arm: 13.0, air: 9.0, sea: 13.0 },
       cost: { manpower: 420, iron: 1500, coal: 800, oil: 200, money: 12000 },
@@ -212,7 +212,7 @@
     },
     {
       id: 'dreadnought', name: 'Dreadnought', short: 'BB', cat: 'sea', domain: 'sea', icon: '⬤',
-      hp: 150, speed: 0.85, range: 2, view: 32,
+      hp: 150, speed: 2.6, range: 2, view: 32,
       atk: { inf: 18.0, arm: 15.0, air: 6.0, sea: 30.0 },
       def: { inf: 22.0, arm: 22.0, air: 12.0, sea: 22.0 },
       cost: { manpower: 900, iron: 4200, coal: 2000, oil: 600, money: 34000 },

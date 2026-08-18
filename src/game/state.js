@@ -149,6 +149,46 @@
       }
     }
 
+    /*
+     * The fleets of 1914.
+     *
+     * A naval war with no navies is not this war, and a blockade needs
+     * something to blockade with.  Every power with a working harbour puts to
+     * sea in proportion to the ports it has to defend, its heaviest ships in
+     * the home squadron.  Dreadnoughts are not given away: those still have to
+     * be laid down.
+     */
+    for (i = 0; i < state.nations.length; i++) {
+      n = state.nations[i];
+      var ports = n.provinces
+        .map(function (id) { return state.provinces[id]; })
+        .filter(function (p) { return (p.buildings.harbour || 0) > 0; })
+        .sort(function (a, b) {
+          return (b.buildings.harbour - a.buildings.harbour) || (b.pop - a.pop);
+        });
+      if (!ports.length) continue;
+      var weight = 0;
+      for (var w = 0; w < ports.length; w++) weight += ports[w].buildings.harbour;
+      /*
+       * Bounded by the country as well as by the coast.  A one-province state
+       * with a good harbour still cannot coal a battle squadron, and handing it
+       * one only starves it in the first fortnight.
+       */
+      var squadrons = Math.min(8, Math.floor(weight / 4), Math.floor(n.provinces.length / 2));
+      for (var sq = 0; sq < squadrons; sq++) {
+        var port = ports[sq];
+        var water = null;
+        for (var nb = 0; nb < port.neighbors.length; nb++) {
+          if (state.provinces[port.neighbors[nb]].isSea) { water = port.neighbors[nb]; break; }
+        }
+        if (water === null) continue;
+        spawnArmy(state, n.id, water, sq === 0
+          ? [{ typeId: 'cruiser', count: 2 }, { typeId: 'destroyer', count: 2 }]
+          : sq < 3 ? [{ typeId: 'cruiser', count: 1 }, { typeId: 'destroyer', count: 1 }]
+            : [{ typeId: 'destroyer', count: 2 }]);
+      }
+    }
+
     openingDiplomacy(state);
     IA.market.init(state, rng);
     recomputeVP(state);

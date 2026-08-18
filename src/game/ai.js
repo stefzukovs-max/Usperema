@@ -276,6 +276,7 @@
 
     armies = IA.state.armiesOf(state, nation.id);
     var claimed = {};
+    var seaPlan = null;              // built the first time a squadron asks
     for (var k = 0; k < armies.length; k++) {
       var army = armies[k];
       if (army.path.length || army.inCombat) continue;
@@ -289,7 +290,11 @@
         if (shellTarget) { IA.orders.issueBombard(state, army, shellTarget); continue; }
       }
 
-      if (domain === 'sea') { patrol(state, rng, army); continue; }
+      if (domain === 'sea') {
+        if (!seaPlan) seaPlan = navalObjectives(state, nation);
+        patrol(state, rng, army, seaPlan, claimed);
+        continue;
+      }
 
       /*
        * Score every objective with cheap straight-line distance first, then
@@ -364,14 +369,78 @@
     return best ? state.provinces[best.id] : null;
   }
 
-  function patrol(state, rng, army) {
+  /*
+   * Where a fleet is worth having.
+   *
+   * At war the most valuable water is whatever an enemy port has to use: a
+   * squadron sitting there shuts the port's trade and cuts every convoy lane
+   * behind it, which costs the enemy more than any single province.  Next best
+   * is water off a port of your own that somebody else has shut — that is a
+   * blockade to be lifted.  With no war on, ships stay near home, where they
+   * will be wanted first.
+   *
+   * Computed once per nation per turn and shared by all its squadrons, because
+   * it is a scan of the whole coast.
+   */
+  function navalObjectives(state, nation) {
+    var index = {}, out = [];
+    function add(seaId, worth) {
+      if (index[seaId] !== undefined) { out[index[seaId]].worth += worth; return; }
+      index[seaId] = out.length;
+      out.push({ id: seaId, worth: worth });
+    }
+    for (var i = 0; i < state.landCount; i++) {
+      var p = state.provinces[i];
+      if (!p.seaport || !p.nationId || !p.pop) continue;
+      var mine = p.nationId === nation.id;
+      if (!mine && !IA.state.isHostile(state, nation.id, p.nationId)) continue;
+      for (var k = 0; k < p.neighbors.length; k++) {
+        var np = state.provinces[p.neighbors[k]];
+        if (!np.isSea || np.isLake) continue;
+        if (mine) {
+          // Water off our own coast that our shipping can no longer use is
+          // somebody else's squadron, and driving it off is the first job.
+          add(np.id, IA.naval.passable(state, nation.id, np.id) ? p.pop * 0.05 : p.pop * 0.9);
+        } else {
+          // A port already shut is worth holding; a fresh one is worth more.
+          add(np.id, p.blockaded ? p.pop * 0.25 : p.pop);
+        }
+      }
+    }
+    out.sort(function (a, b) { return b.worth - a.worth; });
+    return out.length > 40 ? out.slice(0, 40) : out;
+  }
+
+  function patrol(state, rng, army, objectives, claimed) {
     var prov = state.provinces[army.provinceId];
-    if (!prov.neighbors.length) return;
-    var options = prov.neighbors.filter(function (id) {
-      return state.provinces[id].isSea;
-    });
-    if (!options.length) return;
-    if (rng.chance(0.4)) IA.orders.issueMove(state, army, rng.pick(options));
+    var nation = state.nationById[army.ownerId];
+    if (!objectives || !objectives.length) return;
+    var mine = IA.naval.warshipPower(army);
+    var best = null;
+    for (var i = 0; i < objectives.length; i++) {
+      var o = objectives[i];
+      if (claimed[o.id]) continue;
+      // Do not steam into guns that outweigh you; that is how a navy is lost
+      // in an afternoon.
+      var facing = 0;
+      var there = IA.naval.fleetsIn(state, o.id);
+      for (var f = 0; f < there.length; f++) {
+        if (IA.state.isHostile(state, nation.id, there[f].nationId)) facing += there[f].power;
+      }
+      if (facing > mine * 1.3) continue;
+      var target = state.provinces[o.id];
+      var dx = target.cx - prov.cx, dy = target.cy - prov.cy;
+      var score = o.worth / (1 + Math.sqrt(dx * dx + dy * dy) * 0.02);
+      if (!best || score > best.score) best = { id: o.id, score: score };
+    }
+    if (!best) return;
+    claimed[best.id] = (claimed[best.id] || 0) + 1;
+    if (best.id === army.provinceId) return;             // already on station
+    if (!IA.orders.issueMove(state, army, best.id).ok && rng.chance(0.4)) {
+      // Nowhere to sail from here; drift rather than sit dead in the water.
+      var near = prov.neighbors.filter(function (id) { return state.provinces[id].isSea; });
+      if (near.length) IA.orders.issueMove(state, army, rng.pick(near));
+    }
   }
 
   // --- diplomacy -----------------------------------------------------------

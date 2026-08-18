@@ -539,6 +539,63 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
       fail('tab ' + t + ' rendered empty');
     }
   }
+  /*
+   * The naval war reports on water nobody is looking at, so the tab has to say
+   * something true about it.  Shut the player's coast for real and check the
+   * screen notices.
+   */
+  await page.locator('.tab', { hasText: 'Sea' }).first().click();
+  await page.waitForTimeout(120);
+  var seaBefore = await page.locator('.tab-host').textContent();
+  var seaShut = await page.evaluate(function () {
+    var s = IA.game.current, me = s.nationById[s.playerId];
+    var foe = s.nations.filter(function (n) {
+      return n.alive && IA.state.isHostile(s, me.id, n.id);
+    })[0];
+    var water = {};
+    me.provinces.forEach(function (id) {
+      var p = s.provinces[id];
+      if (!p.seaport) return;
+      p.neighbors.forEach(function (k) {
+        var np = s.provinces[k];
+        if (np.isSea && !np.isLake) water[k] = true;
+      });
+    });
+    var keys = Object.keys(water);
+    if (!foe || !keys.length) return { ports: 0 };
+    keys.forEach(function (k) {
+      IA.state.spawnArmy(s, foe.id, +k, [{ typeId: 'dreadnought', count: 4 }]);
+    });
+    IA.economy.refreshSupply(s);
+    IA.UI.refreshModal();
+    return { ports: keys.length, shut: Math.round(IA.naval.blockadeOf(s, me) * 100), foe: foe.name };
+  });
+  if (!seaShut.ports) {
+    console.log('sea war: the player is landlocked this run, blockade not exercised');
+  } else {
+    await page.locator('.tab', { hasText: 'Sea' }).first().click();
+    await page.waitForTimeout(120);
+    var seaAfter = await page.locator('.tab-host').textContent();
+    await page.screenshot({ path: path.join(SHOTS, '15-sea.png') });
+    if (seaAfter.indexOf('Ports shut') < 0) fail('the sea screen does not report the ports');
+    if (seaShut.shut < 90) fail('a fleet on every approach only shut ' + seaShut.shut + '% of the coast');
+    if (seaAfter === seaBefore) fail('the sea screen did not notice the blockade');
+    if (seaAfter.indexOf('coast is closed') < 0) fail('a closed coast is not called one');
+    console.log('sea war: ' + seaShut.ports + ' approaches held by ' + seaShut.foe +
+      ' shut ' + seaShut.shut + '% of the coast, and the screen says so');
+  }
+  await page.evaluate(function () {
+    // Put the sea back before the clock runs on.
+    var s = IA.game.current;
+    for (var i = s.armies.length - 1; i >= 0; i--) {
+      var a = s.armies[i];
+      if (s.provinces[a.provinceId].isSea && IA.naval.warshipPower(a) > 0 &&
+        a.units.length === 1 && a.units[0].typeId === 'dreadnought') {
+        IA.state.removeArmy(s, a);
+      }
+    }
+    IA.economy.refreshSupply(s);
+  });
   await page.click('#modalClose');
 
   // Run the clock hard and make sure nothing throws.

@@ -65,14 +65,20 @@
     if (prov.deposit) {
       out[prov.deposit] += pop * DEPOSIT_RATE * mf * industry * prodTech;
     }
+    // A port earns on the trade passing through it, and earns nothing at all
+    // while somebody else's fleet is sitting in the roads.
+    var port = !prov.coastal ? 1 : prov.blockaded ? 1 - IA.naval.TRADE_BITE : 1.15;
     out.money += pop * CASH_RATE * mf * (1 + buildingEffect(prov, 'factory', 'money') +
-      buildingEffect(prov, 'railway', 'money') + buildingEffect(prov, 'admin', 'money')) *
-      (prov.coastal ? 1.15 : 1);
+      buildingEffect(prov, 'railway', 'money') + buildingEffect(prov, 'admin', 'money')) * port;
     out.manpower += pop * MANPOWER_RATE * mf *
       (1 + buildingEffect(prov, 'barracks', 'manpower')) * (1 + techBonus(nation, 'manpower'));
 
     var arms = buildingEffect(prov, 'workshop', 'shells') + buildingEffect(prov, 'factory', 'shells');
-    if (arms > 0) out.shells += arms * mf * (1 + techBonus(nation, 'shellYield'));
+    if (arms > 0) {
+      // Nitrates came by ship, and the shell filling lines stop without them.
+      out.shells += arms * mf * (1 + techBonus(nation, 'shellYield')) *
+        (prov.blockaded ? 1 - IA.naval.SHELL_BITE : 1);
+    }
     return out;
   }
 
@@ -145,6 +151,15 @@
   var RAIL_DISCOUNT = 0.45;      // a railway costs this much less to cross
   var ARMY_ATTRITION = 0.75;     // hit points an hour per battalion, unsupplied
   var UNSUPPLIED_ATTACK = 0.62;  // what an unsupplied stack's fire is worth
+  /*
+   * Sea legs.  Water is the cheap way to move anything, which is the whole
+   * reason an empire is worth having — but the ship has to be unloaded at the
+   * far end, and that is expensive.  So supply crosses an ocean for very little
+   * and then barely gets off the quay: a port sustains itself and its own
+   * hinterland, not the continent behind it.
+   */
+  var SEA_COST = 0.12;
+  var LANDING_COST = 2.5;
 
   function supplySources(state, nation) {
     var out = [];
@@ -153,11 +168,14 @@
     if (cap && cap.nationId === nation.id) {
       out.push({ id: cap.id, reach: CAPITAL_REACH + extra });
     }
+    /*
+     * Depots and railheads hold stores of their own.  A harbour does not: it is
+     * a door, not a warehouse, and what comes through it comes off a ship.  A
+     * port with no shipping is just a town.
+     */
     for (var i = 0; i < nation.provinces.length; i++) {
       var p = state.provinces[nation.provinces[i]];
-      var r = buildingEffect(p, 'warehouse', 'supply') +
-        buildingEffect(p, 'harbour', 'supply') +
-        buildingEffect(p, 'railway', 'supply');
+      var r = buildingEffect(p, 'warehouse', 'supply') + buildingEffect(p, 'railway', 'supply');
       if (r > 0) out.push({ id: p.id, reach: r + extra });
     }
     return out;
@@ -197,12 +215,32 @@
       var reach = -top.key;
       if (reach < supply[top.id] - 1e-9) continue;                // stale entry
       var prov = state.provinces[top.id];
-      var here = occupiers[prov.id];
-      if (here && anyHostile(state, nation.id, here)) continue;   // the line is cut here
+      var atSea = prov.isSea;
+      if (!atSea) {
+        var here = occupiers[prov.id];
+        if (here && anyHostile(state, nation.id, here)) continue; // the line is cut here
+      }
+      var fromPort = !atSea && buildingLevel(prov, 'harbour') > 0;
       for (var k = 0; k < prov.neighbors.length; k++) {
         var np = state.provinces[prov.neighbors[k]];
-        if (!carriesSupply(state, nation, np)) continue;
-        var left = reach - (buildingLevel(np, 'railway') ? 1 - RAIL_DISCOUNT : 1);
+        var cost;
+        if (np.isSea) {
+          // Out to sea from a harbour, or on along the lane.  Nothing sails a lake.
+          if (np.isLake) continue;
+          if (!atSea && !fromPort) continue;
+          if (!IA.naval.passable(state, nation.id, np.id)) continue;
+          cost = SEA_COST;
+        } else if (!carriesSupply(state, nation, np)) {
+          continue;
+        } else if (atSea) {
+          // Unloading, which only a harbour can do, and a deeper harbour does
+          // better.
+          if (!buildingLevel(np, 'harbour')) continue;
+          cost = LANDING_COST - buildingEffect(np, 'harbour', 'supply');
+        } else {
+          cost = buildingLevel(np, 'railway') ? 1 - RAIL_DISCOUNT : 1;
+        }
+        var left = reach - cost;
         if (left < 0) continue;
         if (supply[np.id] !== undefined && supply[np.id] >= left - 1e-9) continue;
         supply[np.id] = left;
@@ -233,6 +271,9 @@
       var list = occupiers[army.provinceId] || (occupiers[army.provinceId] = []);
       if (list.indexOf(army.ownerId) < 0) list.push(army.ownerId);
     }
+    // Who holds which water, and which ports that shuts, before any lane is
+    // traced across it.
+    IA.naval.refresh(state);
     var list2 = only
       ? only.map(function (id) { return state.nationById[id]; })
       : state.nations;
@@ -291,6 +332,7 @@
     if (!nation) return 50;
     var t = 100;
     if (!prov.inSupply) t -= 26;                       // cut off from the depots
+    if (prov.blockaded) t -= IA.naval.MORALE_BITE;     // and the queues at the docks
     else t -= clamp(4 - (prov.supply || 0), 0, 4) * 3.4;   // the thin end of the line
     if (nation.warCount > 0) t -= 6 + Math.min(14, nation.warCount * 3);
     t += buildingEffect(prov, 'fort', 'morale');

@@ -28,6 +28,7 @@ var FILES = [
   'src/game/market.js',
   'src/game/state.js',
   'src/game/economy.js',
+  'src/game/naval.js',
   'src/game/combat.js',
   'src/game/orders.js',
   'src/game/ai.js',
@@ -147,6 +148,125 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
   IA.economy.refreshSupply(state);
   check('supply comes back once the road is clear',
     player.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length === before);
+})();
+
+/*
+ * The sea.
+ *
+ * Britain is the case the whole system exists for: an empire held together by
+ * shipping, which somebody else's fleet can take apart.  Park hostile squadrons
+ * on every ocean approach to every British port and three things have to
+ * follow — the ports shut, the trade they carried stops, and the colonies they
+ * fed go dark.  Then send the Royal Navy back out and it all has to come back.
+ */
+(function () {
+  var gbr = state.nationById.GBR;
+  if (!gbr || !gbr.alive) { check('there is a naval empire to test', false); return; }
+  var foe = state.nationById.GER;
+  if (!foe || !foe.alive) { check('there is a rival fleet to test with', false); return; }
+  var wasTreaty = gbr.treaties[foe.id];
+  gbr.treaties[foe.id] = 'war';
+  foe.treaties[gbr.id] = 'war';
+
+  function supplied() {
+    return gbr.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length;
+  }
+  IA.economy.refreshSupply(state);
+  var openPorts = supplied();
+  var openMoney = IA.economy.nationIncome(state, gbr).money;
+  check('an empire is fed across the water', openPorts > 20, 'in supply: ' + openPorts);
+
+  // Every stretch of ocean a British port can reach, and a German squadron on
+  // each of them.
+  var water = {};
+  gbr.provinces.forEach(function (id) {
+    var p = state.provinces[id];
+    if (!p.seaport) return;
+    p.neighbors.forEach(function (k) {
+      var np = state.provinces[k];
+      if (np.isSea && !np.isLake) water[k] = true;
+    });
+  });
+  var approaches = Object.keys(water);
+  check('British ports have approaches to blockade', approaches.length > 5,
+    approaches.length + ' sea zones');
+  /*
+   * The Royal Navy — and the allied ships sharing its water — are in the way of
+   * this blockade, which is exactly what a fleet is for.  Sweep them aside
+   * first and put them back afterwards: what is being tested here is what
+   * happens to an empire whose fleet has lost.
+   */
+  var homeFleet = state.armies.filter(function (a) {
+    if (IA.naval.warshipPower(a) <= 0) return false;
+    if (!state.provinces[a.provinceId].isSea) return false;
+    return !IA.state.isHostile(state, gbr.id, a.ownerId);
+  });
+  homeFleet.forEach(function (a) { IA.state.removeArmy(state, a); });
+
+  var raiders = approaches.map(function (k) {
+    return IA.state.spawnArmy(state, foe.id, +k, [{ typeId: 'cruiser', count: 3 }]);
+  });
+  IA.economy.refreshSupply(state);
+
+  var shutPorts = supplied();
+  var shutMoney = IA.economy.nationIncome(state, gbr).money;
+  check('a blockade shuts the ports', IA.naval.blockadeOf(state, gbr) > 0.95,
+    Math.round(IA.naval.blockadeOf(state, gbr) * 100) + '% of the coast');
+  check('and takes the trade with it', shutMoney < openMoney * 0.8,
+    openMoney.toFixed(0) + ' -> ' + shutMoney.toFixed(0) + ' an hour');
+  check('and the empire beyond the ports goes dark', shutPorts < openPorts * 0.75,
+    openPorts + ' -> ' + shutPorts + ' provinces in supply');
+
+  /*
+   * Escorts are the other half of it: a convoy gets through while the ships
+   * defending the lane are worth as much as the ships hunting it.  One British
+   * squadron of equal weight on one approach has to reopen that approach.
+   */
+  var lane = +approaches[0];
+  var escort = IA.state.spawnArmy(state, gbr.id, lane, [{ typeId: 'cruiser', count: 3 }]);
+  IA.naval.refresh(state);
+  check('an escort of equal weight reopens the lane',
+    IA.naval.passable(state, gbr.id, lane) === true);
+  IA.state.removeArmy(state, escort);
+
+  raiders.forEach(function (a) { IA.state.removeArmy(state, a); });
+  homeFleet.forEach(function (a) { state.armies.push(a); });
+  IA.state.touchArmies(state);
+  IA.economy.refreshSupply(state);
+  check('and lifting the blockade restores the empire', supplied() === openPorts,
+    supplied() + ' of ' + openPorts);
+
+  if (wasTreaty === undefined) { delete gbr.treaties[foe.id]; delete foe.treaties[gbr.id]; }
+  else { gbr.treaties[foe.id] = wasTreaty; foe.treaties[gbr.id] = wasTreaty; }
+  IA.economy.refreshSupply(state);
+})();
+
+/*
+ * A lake is not the sea.  The map compiler calls every stretch of water a sea
+ * zone, and without the distinction a squadron could blockade Switzerland.
+ */
+(function () {
+  var lakes = 0, oceans = 0, badPorts = [];
+  for (var i = 0; i < state.provinces.length; i++) {
+    var p = state.provinces[i];
+    if (p.isSea) { if (p.isLake) lakes++; else oceans++; continue; }
+    if (!p.seaport) continue;
+    var reachesOcean = false;
+    for (var k = 0; k < p.neighbors.length; k++) {
+      var np = state.provinces[p.neighbors[k]];
+      if (np.isSea && !np.isLake) { reachesOcean = true; break; }
+    }
+    if (!reachesOcean) badPorts.push(p.name);
+  }
+  check('the map knows a lake from an ocean', lakes > 0 && oceans > lakes,
+    oceans + ' sea zones, ' + lakes + ' landlocked');
+  check('no port is a port onto a lake', badPorts.length === 0, badPorts.slice(0, 3).join(', '));
+  var landlocked = state.nations.filter(function (n) {
+    return n.alive && !n.provinces.some(function (id) { return state.provinces[id].seaport; });
+  });
+  check('a landlocked power cannot be blockaded',
+    landlocked.every(function (n) { return IA.naval.blockadeOf(state, n) === 0; }),
+    landlocked.length + ' landlocked powers');
 })();
 
 /*

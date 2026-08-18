@@ -532,8 +532,15 @@
         stat('Victory points', String(prov.vp)),
         stat('Terrain', IA.worldgen.TERRAIN[prov.terrain].name),
         stat('Supply', supplyLabel(prov)),
-        stat('Weather', weatherLabel(prov))
+        stat('Weather', weatherLabel(prov)),
+        prov.seaport ? stat('Port', portLabel(prov)) : null
       ]));
+      if (isMine && prov.blockaded) {
+        wrap.appendChild(el('div', { class: 'notice warn' },
+          'Blockaded. Enemy warships hold every approach, so the trade through ' +
+          'this port has stopped and nothing reaches your ports overseas by ' +
+          'this route. Drive them off, or escort the lane with a fleet of your own.'));
+      }
       if (isMine && !prov.inSupply) {
         wrap.appendChild(el('div', { class: 'notice warn' },
           'Cut off from your depots. Morale is falling and any stack here is ' +
@@ -1330,6 +1337,7 @@
     var views = {
       'War aims': function () { return self.buildWarAims(); },
       Battles: function () { return self.buildBattleReports(); },
+      Sea: function () { return self.buildSeaWar(); },
       Officers: function () { return self.buildOfficers(); },
       Intel: function () { return self.buildIntel(); },
       Log: function () { return self.buildLogView(); },
@@ -1352,6 +1360,134 @@
     host.appendChild(views['War aims']());
     wrap.appendChild(tabs);
     wrap.appendChild(host);
+    return wrap;
+  };
+
+  /**
+   * The naval war, which is otherwise invisible: it happens in empty water and
+   * is paid for in trade nobody watches stop.  Your coast, the coast you are
+   * shutting, and where every ship you own is standing.
+   */
+  UI.buildSeaWar = function () {
+    var self = this, state = this.state;
+    var me = state.nationById[state.playerId];
+    var wrap = el('div', { class: 'modal-sections' });
+
+    var shut = IA.naval.blockadeOf(state, me);
+    var myPorts = me.provinces.map(function (id) { return state.provinces[id]; })
+      .filter(function (p) { return p.seaport; });
+    var mineShut = myPorts.filter(function (p) { return p.blockaded; });
+    var fleets = IA.state.armiesOf(state, me.id).filter(function (a) {
+      return IA.naval.warshipPower(a) > 0;
+    });
+
+    // What your own navy is doing to somebody else.
+    var theirsShut = [];
+    for (var i = 0; i < state.landCount; i++) {
+      var p = state.provinces[i];
+      if (!p.blockaded || !p.nationId || p.nationId === me.id) continue;
+      if (!IA.state.isHostile(state, me.id, p.nationId)) continue;
+      for (var k = 0; k < p.neighbors.length; k++) {
+        var np = state.provinces[p.neighbors[k]];
+        if (!np.isSea || np.isLake) continue;
+        var here = IA.naval.fleetsIn(state, np.id);
+        var ours = false;
+        for (var f = 0; f < here.length; f++) if (here[f].nationId === me.id) ours = true;
+        if (ours) { theirsShut.push(p); break; }
+      }
+    }
+
+    wrap.appendChild(el('div', { class: 'stat-grid' }, [
+      stat('Your coast', !myPorts.length ? 'Landlocked'
+        : shut > 0 ? Math.round(shut * 100) + '% shut' : 'Open'),
+      stat('Ports shut', mineShut.length + ' of ' + myPorts.length),
+      stat('Enemy ports you hold', String(theirsShut.length)),
+      stat('Warships at sea', String(fleets.length))
+    ]));
+
+    if (shut >= 0.5) {
+      wrap.appendChild(el('div', { class: 'notice warn' },
+        'Your coast is closed. Trade through those ports has stopped, the shell ' +
+        'filling lines are short of imported nitrates, and nothing reaches your ' +
+        'territory overseas by sea. Only warships on the water will open it again.'));
+    } else if (!myPorts.length) {
+      wrap.appendChild(el('div', { class: 'notice' },
+        'You have no seaport, so no blockade can reach you \u2014 and nothing of ' +
+        'yours across water can be supplied by convoy either.'));
+    }
+
+    function portRow(prov, byUs) {
+      var by = null;
+      for (var n = 0; n < prov.neighbors.length; n++) {
+        var w = state.provinces[prov.neighbors[n]];
+        if (!w.isSea || w.isLake) continue;
+        var there = IA.naval.fleetsIn(state, w.id);
+        for (var q = 0; q < there.length; q++) {
+          var ok = byUs ? there[q].nationId === me.id
+            : IA.state.isHostile(state, prov.nationId, there[q].nationId);
+          if (ok) { by = state.nationById[there[q].nationId]; break; }
+        }
+        if (by) break;
+      }
+      return el('button', {
+        class: 'officer',
+        onclick: function () {
+          self.closeModal();
+          self.selectProvince(prov.id);
+          self.renderer.centerOn(prov.id, Math.max(self.renderer.camera.zoom, 6));
+        }
+      }, [
+        el('div', { class: 'officer-head' }, [
+          el('span', { class: 'officer-name', text: prov.name }),
+          el('span', { class: 'officer-post',
+            text: byUs ? 'shut by you' : by ? 'shut by ' + by.name : 'shut' })
+        ])
+      ]);
+    }
+
+    function group(title, rows) {
+      var list = el('div', { class: 'officers' });
+      rows.forEach(function (r) { list.appendChild(r); });
+      return section(title, list);
+    }
+
+    function byPop(a, b) { return b.pop - a.pop; }
+
+    if (mineShut.length) {
+      wrap.appendChild(group('Your ports under blockade',
+        mineShut.sort(byPop).slice(0, 8).map(function (x) { return portRow(x, false); })));
+    }
+    if (theirsShut.length) {
+      wrap.appendChild(group('Enemy ports you hold shut',
+        theirsShut.sort(byPop).slice(0, 8).map(function (x) { return portRow(x, true); })));
+    }
+
+    if (!fleets.length) {
+      wrap.appendChild(section('Your fleets', el('div', { class: 'muted',
+        text: 'You have no warships. A harbour builds them; without them the sea ' +
+          'belongs to whoever does.' })));
+      return wrap;
+    }
+    fleets.sort(function (a, b) { return IA.naval.warshipPower(b) - IA.naval.warshipPower(a); });
+    wrap.appendChild(group('Your fleets', fleets.map(function (army) {
+      var where = state.provinces[army.provinceId];
+      var open = IA.naval.passable(state, me.id, army.provinceId);
+      return el('button', {
+        class: 'officer',
+        onclick: function () {
+          self.closeModal();
+          self.selectArmy(army.id);
+          self.renderer.centerOn(army.provinceId, Math.max(self.renderer.camera.zoom, 6));
+        }
+      }, [
+        el('div', { class: 'officer-head' }, [
+          el('span', { class: 'officer-name', text: army.name }),
+          el('span', { class: 'officer-post',
+            text: where.name + (army.path.length ? ' \u2014 under way'
+              : open ? '' : ' \u2014 water contested') })
+        ])
+      ]);
+    })));
     return wrap;
   };
 
@@ -1913,6 +2049,29 @@
     if (w.speed !== 1) parts.push(Math.round((w.speed - 1) * 100) + '% pace');
     if (w.attack !== 1) parts.push(Math.round((w.attack - 1) * 100) + '% fire');
     return w.icon + ' ' + w.name + (parts.length ? ' (' + parts.join(', ') + ')' : '');
+  }
+
+  /**
+   * A port, and whether anything can still use it.  Names the fleet doing the
+   * shutting, because the answer to a blockade is always a particular navy.
+   */
+  function portLabel(prov) {
+    var state = UI.state;
+    if (!prov.blockaded) return '\u2693 Open';
+    var by = null;
+    for (var i = 0; i < prov.neighbors.length; i++) {
+      var np = state.provinces[prov.neighbors[i]];
+      if (!np.isSea || np.isLake) continue;
+      var there = IA.naval.fleetsIn(state, np.id);
+      for (var f = 0; f < there.length; f++) {
+        if (IA.state.isHostile(state, prov.nationId, there[f].nationId)) {
+          by = state.nationById[there[f].nationId];
+          break;
+        }
+      }
+      if (by) break;
+    }
+    return 'Blockaded' + (by ? ' by ' + by.name : '');
   }
 
   /** How well fed a province is, in words rather than a number nobody can read. */

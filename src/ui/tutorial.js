@@ -72,17 +72,20 @@
     {
       id: 'supply',
       title: 'Reach further',
-      text: 'Every province panel shows a supply line. Supply runs from your capital ' +
-        'and your depots through ground you hold, and an enemy standing across it ' +
-        'cuts it — a stack out of supply loses men every hour and fights at two ' +
-        'thirds strength. Start a Supply Depot or a Railway Yard to push it further.',
+      text: 'Every province panel shows a supply line. Supply runs from your capital, ' +
+        'your railheads and your depots through ground you hold — and across the ' +
+        'water between your harbours, which is how anything overseas is fed at all. ' +
+        'An enemy standing across a road cuts it, and an enemy fleet sitting off a ' +
+        'port does the same to a convoy. A stack out of supply loses men every hour ' +
+        'and fights at two thirds strength. Start a Supply Depot to push the line further.',
       done: function (state) {
         var me = state.nationById[state.playerId];
         for (var i = 0; i < me.provinces.length; i++) {
           var p = state.provinces[me.provinces[i]];
-          if (p.buildings.warehouse || p.buildings.railway) return true;
+          // A depot, specifically: every sizeable city already has a railway.
+          if (p.buildings.warehouse) return true;
           var c = p.construction;
-          if (c && (c.buildingId === 'warehouse' || c.buildingId === 'railway')) return true;
+          if (c && c.buildingId === 'warehouse') return true;
         }
         return false;
       }

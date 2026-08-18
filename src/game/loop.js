@@ -51,6 +51,7 @@
   function stepDay(state, rng) {
     IA.weather.refresh(state);
     IA.economy.refreshSupply(state);
+    IA.naval.tickDaily(state);
     IA.commanders.tickDaily(state, rng);
     IA.espionage.tickDaily(state, rng);
     for (var i = 0; i < state.nations.length; i++) {

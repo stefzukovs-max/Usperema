@@ -34,6 +34,7 @@
         reputation: n.reputation, agents: n.agents || 0, intel: n.intel || {},
         counterUntil: n.counterUntil || 0, provinces: n.provinces,
         vp: n.vp, warCount: n.warCount || 0, nextTurn: n.nextTurn,
+        blockade: n.blockade || 0,
         capitalProvince: n.capitalProvince
       });
     }
@@ -125,6 +126,7 @@
       n.provinces = sn.provinces || [];
       n.vp = sn.vp || 0;
       n.warCount = sn.warCount || 0;
+      n.blockade = sn.blockade || 0;
       n.nextTurn = sn.nextTurn;
       n.capitalProvince = sn.capitalProvince;
     }
