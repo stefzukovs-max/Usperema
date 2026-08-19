@@ -1,12 +1,16 @@
 # Iron Accord
 
-A real-time grand-strategy game of the Great War, played in the browser on a map
-of the world as it stood in 1914. You take one of 54 powers — with its real
-borders, its real neighbours and its real cities — mobilise an economy, raise an
-army, and fight the war out. No build step, no dependencies: open `index.html`
-and play.
+A real-time grand-strategy game played in the browser on a map of the world as
+it stands. You take one of 189 sovereign states — with its real borders, its
+real neighbours and its real cities — mobilise an economy, raise an army, and
+find out how the century goes. No build step, no dependencies: open
+`index.html` and play.
 
-![the world in 1914](tools/shots/world-map.png)
+The map compiler is era-agnostic and ships a second world with it: `npm run
+build:map -- --era=1914` rebuilds the same game on the Europe of the Great War,
+empires and all.
+
+![the world](tools/shots/world-map.png)
 
 ## Running it
 
@@ -25,46 +29,59 @@ runs straight from `file://`.
 
 Borders are real. The map is compiled from [Natural
 Earth](https://www.naturalearthdata.com/) 1:50m admin-0 countries and lakes,
-projected with the Miller cylindrical projection and cut into **720 land
-provinces and 175 sea zones** across **54 powers**. Antarctica is omitted; the
+projected with the Miller cylindrical projection and cut into **826 land
+provinces and 173 sea zones** across **189 states**. Antarctica is omitted; the
 map runs from 83°N to 60°S.
 
-![Europe in 1914](tools/shots/europe-1914.png)
+![Europe](tools/shots/europe.png)
 
-- **1914 is composed from modern borders.** Natural Earth ships today's world,
-  so `tools/era1914.js` maps each of 172 modern countries onto the power that
-  held it — Bohemia and Croatia to Austria-Hungary, Finland and Poland to
-  Russia, Korea to Japan, the Congo to Belgium — and then carves seven frontiers
-  that ran through a modern country rather than around it: Posen and Silesia,
-  Galicia, Alsace-Lorraine, Transylvania, Trentino and Trieste, the Hejaz, and
-  Kaiser-Wilhelmsland. Each carve is a longitude/latitude box scoped to the
-  country it takes from, so it cannot bleed into a neighbour, and the build
-  fails if one of them moves no ground.
+- **The world is whichever one you compile.** An era module supplies the
+  nations, the frontier carves a country-level merge cannot express, the period
+  spellings of place names, the date the clock starts on and the length of the
+  campaign. `tools/era2026.js` is the present day: every state is itself, and
+  dependencies fold in behind whoever holds them the way an atlas prints them.
+  `tools/era1914.js` is the Great War: it maps each modern country onto the
+  power that held it — Bohemia to Austria-Hungary, Finland to Russia, Korea to
+  Japan, the Congo to Belgium — and carves seven frontiers that ran through a
+  modern country rather than around it. Each carve is a longitude/latitude box
+  scoped to the country it takes from, so it cannot bleed into a neighbour, and
+  the build fails if one of them moves no ground.
+- **Lakes are not the sea.** The compiler cuts lakes out of the land from a
+  lakes layer, and marks that water while it does so. Nothing sails a lake and
+  no fleet blockades a country across one — at this resolution the Aegean and
+  Lake Victoria are the same size and both are ringed by land, so shape alone
+  cannot tell them apart.
 - **Provinces** are generated inside each power, sized by a blend of area and
   where people actually live. Area alone would hand Denmark more provinces than
   the German Empire, because Greenland is enormous under this projection and
   Silesia is not. A province never crosses a national border.
-- **Province names are real cities** — 640 of the 720 — under the names they
-  went by at the time: Constantinople, Petrograd, Christiania, Lemberg.
+- **Province names are real cities** — 741 of the 826 — under the names they go
+  by in the era being played: Istanbul today, Constantinople in 1914.
 - **Population is real too**, taken from the city data and compressed onto a
   playable scale, so the Ruhr and Bengal are worth fighting over and Siberia is
   worth crossing.
 - **Colours are graph-coloured** over the country adjacency graph, maximising
   hue distance, so no two powers that share a border look alike.
 
-`src/data/worldmap.js` (208 KB) is committed, so nothing is downloaded at play
-time. To rebuild it — after changing the province count, the projection, the
-1914 composition, or the source data — run `npm run build:map`, which fetches
-and caches the Natural Earth files into `tools/geodata/`.
+`src/data/worldmap.js` (239 KB) is committed, so nothing is downloaded at play
+time. To rebuild it — after changing the province count, the projection, the era
+composition, or the source data — run `npm run build:map`, which fetches and
+caches the Natural Earth files into `tools/geodata/`. Add `-- --era=1914` to
+build the other world.
 
 ## How the game works
 
-**The alliances of 1914 are already in place.** Every power belongs to the
-Central Powers, the Entente, or the neutrals; the two blocs start at war with
-each other and allied within themselves, and the neutrals start out of it with
-their own opinions to form.
+**The standing alliances are already signed.** Every power belongs to NATO, the
+CSTO, or neither; members of a bloc are allied to each other and the unaligned
+start out of it with their own opinions to form. What happens between the blocs
+is the difference between the two worlds: in 1914 they open at war, and today
+they open armed and cold — no treaty either way, a poor opinion of each other,
+and whether that becomes a war is the thing the campaign is about. The AI knows
+the difference: in a world that opens cold, far fewer powers go looking for a
+war and the ones that do need an actual grievance rather than merely a weaker
+neighbour.
 
-**The war opens on 28 July 1914** and runs on the real calendar, which is what
+**The campaign opens on the era's own date** and runs on the real calendar, which is what
 makes the seasons mean anything. Weather is settled once a day per weather cell
 — about twelve degrees by ten, with the grid drifting eastward so fronts move —
 from a table for that cell's climate and season. It costs you in three places:
@@ -199,6 +216,7 @@ src/engine/           seeded RNG, helpers, map decoder, per-game world setup
 src/game/             simulation: state, economy, combat, orders, diplomacy, AI,
                       market, the hourly loop, save/load
 src/ui/               canvas map renderer and the DOM interface
+tools/era2026.js      the present-day world: states, alliances, capitals
 tools/era1914.js      who held what in 1914, and what it was called then
 tools/buildmap.js     the map compiler
 tools/                test harnesses and the screenshot tool
@@ -308,7 +326,7 @@ node tools/hero.js [europe]    # regenerate the README map images
 hour that stacks stand on real provinces, hit points stay within bounds, naval
 units stay at sea, resources stay finite and non-negative, and province ownership
 records agree with the provinces themselves. It also asserts the map is really
-the 1914 world, then round-trips a save and confirms both copies evolve
+the world it says it is, then round-trips a save and confirms both copies evolve
 identically.
 
 Beyond that it tests the mechanics rather than the plumbing, which is a
@@ -358,9 +376,10 @@ drop count: across repeated runs on a shared machine the median is immovable
 while the tail wanders with the host scheduler, and the regression this file was
 written to catch sat at 33 ms — a doubling no amount of averaging could hide.
 
-`buildmap` checks itself too. It verifies that 23 real cities land inside a
-province held by the right power in 1914 — Warsaw Russian, Poznan German, Lviv
-Austrian, Leopoldville Belgian — that a frontier carve which moves no ground is
+`buildmap` checks itself too. It verifies that a list of real cities lands
+inside the country that governs it — twenty of them today, twenty-three in 1914,
+where Warsaw has to come out Russian, Poznan German and Lviv Austrian — that a
+frontier carve which moves no ground is
 an error rather than a silent no-op, that every traced province outline is a
 closed chain, that the coordinate encoder round-trips exactly, and that no
 province spans more than 150 map units. That last one exists because islands the
@@ -381,7 +400,9 @@ Most of the feel lives in a few constants:
 | Starting stockpiles | `START_RESOURCES` in `src/game/state.js` |
 | Population compression | `gamePop` in `src/engine/worldgen.js` |
 | Climate and relief | the lon/lat boxes in `src/engine/worldgen.js` |
-| Who held what in 1914 | `HELD_BY` and `SPLITS` in `tools/era1914.js` (then rebuild) |
+| Which world you play on | `--era=` on `tools/buildmap.js` (then rebuild) |
+| Who holds what | the era module in `tools/era2026.js` or `tools/era1914.js` (then rebuild) |
+| The standing alliances | `NATO` and `CSTO` in `tools/era2026.js` (then rebuild) |
 | Province count | `TARGET_PROVINCES` in `tools/buildmap.js` (then rebuild) |
 | Victory threshold | `victoryVP` in `src/game/state.js` |
 | Real seconds per game hour | `SPEEDS` in `src/game/state.js` |
@@ -395,11 +416,11 @@ Most of the feel lives in a few constants:
 ## Data and attribution
 
 Map data © [Natural Earth](https://www.naturalearthdata.com/), public domain.
-Modern borders, names and status follow that dataset's conventions; the 1914
-composition on top of them is this project's own, and is a playable
-approximation rather than a scholarly one. Frontiers that were contested at the
-time are drawn one way so the game has an answer, not because the question was
-settled.
+Modern borders, names and status follow that dataset's conventions. The
+alliance lists and the 1914 composition on top of them are this project's own,
+and are playable approximations rather than scholarly ones. Frontiers that are
+or were contested are drawn one way so the game has an answer, not because the
+question is settled.
 
 Iron Accord is an original game. The name, artwork, icons, interface, unit and
 technology tables, map and code are its own, and it is not affiliated with or

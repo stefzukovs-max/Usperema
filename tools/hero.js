@@ -3,7 +3,7 @@
  * Renders the map on its own, with no interface over it, for the README.
  *
  *   node tools/hero.js               # whole world -> shots/world-map.png
- *   node tools/hero.js europe        # the powers  -> shots/europe-1914.png
+ *   node tools/hero.js europe        # the powers  -> shots/europe.png
  *   node tools/hero.js europe 180    # ...on day 180, to see the winter
  */
 'use strict';
@@ -46,7 +46,7 @@ var view = process.argv[2] === 'europe' ? 'europe' : 'world';
 var atDay = Number(process.argv[3] || 0);
 var URL = 'file://' + path.join(__dirname, '..', 'index.html');
 var OUT = path.join(__dirname, 'shots',
-  view === 'europe' ? 'europe-1914.png' : 'world-map.png');
+  view === 'europe' ? 'europe.png' : 'world-map.png');
 
 (async function () {
   var browser = await playwright.chromium.launch({
@@ -87,8 +87,10 @@ var OUT = path.join(__dirname, 'shots',
 
     var r = IA.UI.renderer;
     if (which === 'europe') {
-      var cap = IA.game.current.provinces[
-        IA.game.current.nationById.GER.capitalProvince];
+      // Berlin in either world, without caring what the country is called.
+      var s = IA.game.current;
+      var seat = s.nationById.DEU || s.nationById.GER || s.nations[0];
+      var cap = s.provinces[seat.capitalProvince];
       r.camera.zoom = 7;
       r.camera.x = cap.cx;
       r.camera.y = cap.cy;
