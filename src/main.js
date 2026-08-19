@@ -151,7 +151,7 @@
       note: 'When the guns stop and the leader takes the peace.',
       options: [
         { label: 'Short — 1 year', value: 1 },
-        { label: 'Historical — to 11 Nov 1918', value: 'historical' },
+        { label: 'Standard', value: 'historical' },
         { label: 'Long — 8 years', value: 8 }
       ]
     },

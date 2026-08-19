@@ -139,7 +139,7 @@
    * Supply flows out from the capital and from every depot, harbour and
    * railway yard, spreading province by province across ground the nation
    * holds or is allied to.  It does not pass through a province an enemy army
-   * is standing in, so a cavalry raid behind the line cuts the front off
+   * is standing in, so a raid behind the line cuts the front off
    * without having to take the ground first — which is most of the point.
    *
    * Every source has a reach.  Crossing a province spends a unit of it, less

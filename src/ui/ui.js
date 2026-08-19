@@ -2000,11 +2000,13 @@
         'Run out of grain or money and your army starts to fall apart.' }),
       el('h4', { text: 'Fighting' }),
       el('p', { text: 'Move a stack onto a hostile province to attack it. Stacks in the same province ' +
-        'exchange fire every hour; the survivor grinds down the occupation timer. Artillery, SAMs, ' +
-        'destroyers and carriers can bombard a neighbouring province without entering it.' }),
+        'exchange fire every hour; the survivor grinds down the occupation timer. Mortars, artillery, ' +
+        'rocket artillery, destroyers, cruisers and carriers can bombard a neighbouring province ' +
+        'without entering it.' }),
       el('h4', { text: 'Terrain and morale' }),
       el('p', { text: 'Mountains and jungle slow attackers and shelter defenders. Provinces far from your ' +
-        'capital lose morale, and low morale cuts production and combat strength. Bunkers and propaganda help.' }),
+        'capital lose morale, and low morale cuts production and combat strength. Fortifications and ' +
+        'a civil administration help.' }),
       el('h4', { text: 'Controls' }),
       el('p', { text: 'Drag to pan, scroll or pinch to zoom, tap a province or stack to select it. ' +
         'Space pauses, 1/2/3 set game speed, Escape cancels.' })

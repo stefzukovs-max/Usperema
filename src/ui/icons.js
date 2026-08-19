@@ -57,18 +57,33 @@
       c.moveTo(0.44, 0.34); c.lineTo(0.46, 0.86);
       c.stroke();
     },
-    /** A horse's head and neck, cut to a silhouette. */
-    cavalry: function (c) {
+    /** A light reconnaissance vehicle: low hull, sloped nose, sensor mast. */
+    recon: function (c) {
       c.beginPath();
-      c.moveTo(0.22, 0.86);
-      c.lineTo(0.30, 0.48);
-      c.quadraticCurveTo(0.36, 0.24, 0.58, 0.18);
-      c.lineTo(0.62, 0.06);
-      c.lineTo(0.70, 0.20);
-      c.quadraticCurveTo(0.86, 0.28, 0.80, 0.46);
-      c.quadraticCurveTo(0.72, 0.60, 0.60, 0.60);
-      c.lineTo(0.52, 0.86);
+      c.moveTo(0.08, 0.74);                             // hull
+      c.lineTo(0.16, 0.52);
+      c.lineTo(0.46, 0.50);
+      c.lineTo(0.56, 0.36);
+      c.lineTo(0.86, 0.38);
+      c.lineTo(0.94, 0.54);
+      c.lineTo(0.94, 0.74);
       c.closePath();
+      c.fill();
+      c.beginPath();                                    // sensor mast
+      c.moveTo(0.64, 0.38);
+      c.lineTo(0.68, 0.38);
+      c.lineTo(0.68, 0.12);
+      c.lineTo(0.82, 0.08);
+      c.lineTo(0.82, 0.14);
+      c.lineTo(0.72, 0.17);
+      c.lineTo(0.72, 0.38);
+      c.closePath();
+      c.fill();
+      c.beginPath();                                    // wheels
+      c.arc(0.28, 0.80, 0.10, 0, Math.PI * 2);
+      c.fill();
+      c.beginPath();
+      c.arc(0.74, 0.80, 0.10, 0, Math.PI * 2);
       c.fill();
     },
     /** A field gun: barrel, wheel and trail. */
@@ -129,7 +144,7 @@
       c.beginPath(); c.arc(0.30, 0.78, 0.12, 0, Math.PI * 2); c.fill();
       c.beginPath(); c.arc(0.70, 0.78, 0.12, 0, Math.PI * 2); c.fill();
     },
-    /** A biplane seen from above. */
+    /** A fast jet seen from above. */
     plane: function (c) {
       c.beginPath();
       c.moveTo(0.50, 0.08);                             // nose
@@ -168,18 +183,28 @@
       c.moveTo(0.30, 0.50); c.lineTo(0.30, 0.20);       // mast
       c.stroke();
     },
-    /** A heavier hull with turrets: the capital ship. */
+    /** A flat deck with an island to one side: the capital ship. */
     dreadnought: function (c) {
-      c.beginPath();
-      c.moveTo(0.04, 0.56);
-      c.lineTo(0.96, 0.56);
-      c.lineTo(0.82, 0.80);
-      c.lineTo(0.18, 0.80);
+      c.beginPath();                                    // hull
+      c.moveTo(0.10, 0.62);
+      c.lineTo(0.90, 0.62);
+      c.lineTo(0.80, 0.82);
+      c.lineTo(0.20, 0.82);
       c.closePath();
       c.fill();
-      c.beginPath(); c.rect(0.24, 0.42, 0.14, 0.14); c.fill();
-      c.beginPath(); c.rect(0.62, 0.42, 0.14, 0.14); c.fill();
-      c.beginPath(); c.rect(0.44, 0.22, 0.12, 0.34); c.fill();
+      c.beginPath();                                    // flight deck, angled
+      c.moveTo(0.04, 0.50);
+      c.lineTo(0.96, 0.50);
+      c.lineTo(0.96, 0.62);
+      c.lineTo(0.04, 0.62);
+      c.closePath();
+      c.fill();
+      c.beginPath();                                    // island and mast
+      c.rect(0.60, 0.32, 0.13, 0.18);
+      c.fill();
+      c.beginPath();
+      c.rect(0.645, 0.16, 0.035, 0.16);
+      c.fill();
     },
     /** A submerged hull and a conning tower. */
     submarine: function (c) {
@@ -218,8 +243,8 @@
     guard_infantry: 'infantry',
     assault_infantry: 'assault',
     machine_gun: 'machinegun',
-    cavalry: 'cavalry',
-    scout_cavalry: 'cavalry',
+    cavalry: 'armouredcar',
+    scout_cavalry: 'recon',
     trench_mortar: 'artillery',
     field_artillery: 'artillery',
     heavy_artillery: 'siege',
