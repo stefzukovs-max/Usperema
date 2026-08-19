@@ -24,7 +24,21 @@
 var fs = require('fs');
 var path = require('path');
 var cp = require('child_process');
-var Era = require('./era1914');
+/*
+ * Which world to compile.  The compiler is era-agnostic: an era module supplies
+ * the nations, the frontier splits that a country-level merge cannot express,
+ * and the period spellings of place names.
+ *
+ *   node tools/buildmap.js [--era=2026|1914]
+ */
+var ERA_ID = (function () {
+  for (var i = 2; i < process.argv.length; i++) {
+    var m = /^--era=(.+)$/.exec(process.argv[i]);
+    if (m) return m[1];
+  }
+  return process.env.IA_ERA || '2026';
+})();
+var Era = require('./era' + ERA_ID);
 
 var ROOT = path.join(__dirname, '..');
 var CACHE = path.join(__dirname, 'geodata');
@@ -601,29 +615,20 @@ function main() {
   var features = [];        // {rings, nationIndex or -1}
 
   /*
-   * Every present-day territory is filed under the 1914 power that held it,
-   * so Bohemia lands in Austria-Hungary, Finland in the Russian Empire and
-   * the Raj in the British Empire.  Anything the table does not name is left
-   * unclaimed rather than guessed at.
+   * The era decides who holds what.  `indexFor` returns the nation that holds a
+   * territory, -1 for ground that is on the map but nobody's, and -2 for ground
+   * this era does not play at all.
    */
-  Era.POWERS.forEach(function (power) {
-    nationByIso[power.id] = nations.length;
-    nations.push({
-      iso: power.id, name: power.name, bloc: power.bloc,
-      capitalCity: power.capital, area: 0, cells: [], pop: 0
-    });
-  });
+  var built = Era.nationsFrom(countriesGeo);
+  nations = built.nations;
+  nations.forEach(function (n, i) { nationByIso[n.iso] = i; });
 
   var unmapped = {};
   countriesGeo.features.forEach(function (f) {
     var p = f.properties;
-    if (p.ADM0_A3 === 'ATA' || p.ISO_A3 === 'ATA') return;                 // Antarctica
-    if (p.TYPE === 'Disputed' || p.TYPE === 'Indeterminate') return;
-    var iso = p.ISO_A3_EH && p.ISO_A3_EH !== '-99' ? p.ISO_A3_EH
-      : (p.ISO_A3 && p.ISO_A3 !== '-99' ? p.ISO_A3 : p.ADM0_A3);
-    var powerId = Era.HELD_BY[iso];
-    var nationIndex = powerId === undefined ? -1 : nationByIso[powerId];
-    if (powerId === undefined) unmapped[iso] = p.ADMIN;
+    var nationIndex = built.indexFor(p);
+    if (nationIndex === -2) return;
+    if (nationIndex < 0) unmapped[p.ADM0_A3 || p.ADMIN] = p.ADMIN;
     else nations[nationIndex].pop += (p.POP_EST || 0);
     polygonsOf(f.geometry).forEach(function (poly) {
       features.push({ rings: projectRings(poly), nation: nationIndex });
@@ -643,11 +648,19 @@ function main() {
     fillPolygon(owner, f.rings, f.nation < 0 ? -2 : f.nation);
   });
 
-  // Lakes are cut back out of the land so the map reads correctly.
-  var lakeCells = 0;
+  /*
+   * Lakes are cut back out of the land so the map reads correctly — and marked
+   * while we do it.  A lake is not the sea: no convoy crosses one and no fleet
+   * blockades a country across one, and the difference cannot be recovered
+   * later from shape alone, because at this resolution the Aegean and Lake
+   * Victoria are the same size and both are ringed by land.
+   */
+  var lakeMask = new Uint8Array(GW * GH);
   lakesGeo.features.forEach(function (f) {
     polygonsOf(f.geometry).forEach(function (poly) {
-      fillPolygon(owner, projectRings(poly), -1);
+      var rings = projectRings(poly);
+      fillPolygon(owner, rings, -1);
+      fillPolygon(lakeMask, rings, 1);
     });
   });
 
@@ -768,12 +781,15 @@ function main() {
   var maxX = new Int32Array(provinces.length).fill(-1e9);
   var maxY = new Int32Array(provinces.length).fill(-1e9);
 
+  var lakeCells = new Int32Array(provinces.length);
+
   for (var yy = 0; yy < GH; yy++) {
     for (var xx = 0; xx < GW; xx++) {
       var idx = yy * GW + xx;
       var rid = region[idx];
       if (rid < 0) continue;
       sumX[rid] += xx; sumY[rid] += yy; counts[rid]++;
+      if (lakeMask[idx]) lakeCells[rid]++;
       if (xx < minX[rid]) minX[rid] = xx;
       if (yy < minY[rid]) minY[rid] = yy;
       if (xx > maxX[rid]) maxX[rid] = xx;
@@ -836,14 +852,36 @@ function main() {
    */
   var capitalMisses = [];
   nations.forEach(function (nation, ni) {
-    var seat = byCityName[nation.capitalCity];
-    if (seat && provinces[seat.rid] && provinces[seat.rid].nation === ni) {
-      nation.capital = seat.rid;
-      cityOf[seat.rid] = { name: seat.name, pop: seat.pop };
-      return;
+    if (nation.capitalCity) {
+      var seat = byCityName[nation.capitalCity];
+      if (seat && provinces[seat.rid] && provinces[seat.rid].nation === ni) {
+        nation.capital = seat.rid;
+        cityOf[seat.rid] = { name: seat.name, pop: seat.pop };
+        return;
+      }
+      capitalMisses.push(nation.name + ' (' + nation.capitalCity +
+        (seat ? ' fell outside its territory)' : ' not in the gazetteer)'));
+    } else {
+      /*
+       * An era that does not name its seats takes the country's own capital
+       * from the gazetteer, which flags them — preferring the one filed under
+       * this country's code over any other capital that happens to sit inside
+       * its borders.
+       */
+      var own = -1, any = -1;
+      for (var ci = 0; ci < landProvinceCount; ci++) {
+        if (provinces[ci].nation !== ni || !capitalCityOf[ci]) continue;
+        if (capitalCityOf[ci].iso === nation.iso) { own = ci; break; }
+        if (any < 0) any = ci;
+      }
+      var pick = own >= 0 ? own : any;
+      if (pick >= 0) {
+        nation.capital = pick;
+        cityOf[pick] = { name: capitalCityOf[pick].name, pop: capitalCityOf[pick].pop };
+        return;
+      }
+      capitalMisses.push(nation.name + ' (no capital city in the gazetteer)');
     }
-    if (seat) capitalMisses.push(nation.name + ' (' + nation.capitalCity + ' fell outside its territory)');
-    else capitalMisses.push(nation.name + ' (' + nation.capitalCity + ' not in the gazetteer)');
     var best = -1, bestScore = -1;
     for (var pi = 0; pi < landProvinceCount; pi++) {
       if (provinces[pi].nation !== ni) continue;
@@ -916,6 +954,7 @@ function main() {
   emit({
     nations: nations, colours: colours, provinces: provinces, traced: traced,
     landProvinceCount: landProvinceCount, counts: counts, coast: coast,
+    lakeCells: lakeCells,
     sumX: sumX, sumY: sumY, neighbourSets: neighbourSets,
     minX: minX, minY: minY, maxX: maxX, maxY: maxY,
     provPop: provPop, topCity: topCity
@@ -926,41 +965,9 @@ function main() {
  * A spot check that the raster, the province split and the nation table all
  * agree: these cities must land inside a province owned by this country.
  */
-/*
- * Spot checks on the 1914 composition.  These cities must sit inside the power
- * that actually held them, which exercises the territory table, the frontier
- * splits and the raster all at once.  Warsaw, Poznan and Lviv are the
- * interesting ones: they check that partitioned Poland was carved correctly.
- */
-var CAPITAL_CHECKS = [
-  ['France', 2.35, 48.86],                   // Paris
-  ['German Empire', 13.40, 52.52],           // Berlin
-  ['German Empire', 7.75, 48.58],            // Strasbourg, in Alsace-Lorraine
-  ['German Empire', 16.93, 52.41],           // Poznan, in Prussian Poland
-  ['Austria-Hungary', 16.37, 48.21],         // Vienna
-  ['Austria-Hungary', 14.42, 50.09],         // Prague, in Bohemia
-  ['Austria-Hungary', 24.03, 49.84],         // Lviv, in Galicia
-  ['Austria-Hungary', 23.60, 46.77],         // Cluj, in Transylvania
-  ['Russian Empire', 21.01, 52.23],          // Warsaw, in Congress Poland
-  ['Russian Empire', 30.32, 59.94],          // Petrograd
-  ['Russian Empire', 24.75, 59.44],          // Reval, in the Baltic provinces
-  ['Ottoman Empire', 28.98, 41.01],          // Constantinople
-  ['Ottoman Empire', 44.36, 33.31],          // Baghdad, in Mesopotamia
-  ['British Empire', -0.13, 51.51],          // London
-  ['British Empire', 77.21, 28.61],          // Delhi
-  ['British Empire', 31.24, 30.04],          // Cairo
-  ['Empire of Japan', 139.69, 35.69],        // Tokyo
-  ['Empire of Japan', 126.98, 37.57],        // Seoul, annexed in 1910
-  ['Belgium', 15.31, -4.32],                 // Leopoldville, in the Congo
-  ['Netherlands', 106.83, -6.18],            // Batavia, in the East Indies
-  ['United States', -77.04, 38.91],          // Washington
-  ['Serbia', 20.47, 44.80],                  // Belgrade
-  ['Brazil', -43.20, -22.91]                 // Rio de Janeiro
-];
-
 function verifyCapitals(nations, provinces, region, landCount) {
   var bad = [];
-  CAPITAL_CHECKS.forEach(function (row) {
+  Era.CAPITAL_CHECKS.forEach(function (row) {
     var xy = project(row[1], row[2]);
     var rid = landProvinceNear(region, provinces, Math.floor(xy[0]), Math.floor(xy[1]), 4);
     if (rid < 0 || rid >= landCount) { bad.push(row[0] + ': not on land'); return; }
@@ -969,7 +976,7 @@ function verifyCapitals(nations, provinces, region, landCount) {
     if (got !== row[0]) bad.push(row[0] + ': province ' + rid + ' belongs to ' + got);
   });
   if (bad.length) throw new Error('capital placement check failed —\n    ' + bad.join('\n    '));
-  console.log('  ' + CAPITAL_CHECKS.length + ' capital cities verified in the right country');
+  console.log('  ' + Era.CAPITAL_CHECKS.length + ' capital cities verified in the right country');
 }
 
 /*
@@ -1125,7 +1132,9 @@ function emit(d) {
       d.coast[pi],
       d.minX[pi], d.minY[pi], d.maxX[pi], d.maxY[pi],
       Math.round(d.provPop[pi] / 1000),        // inhabitants, in thousands
-      Math.round(d.topCity[pi] / 1000)         // largest city, in thousands
+      Math.round(d.topCity[pi] / 1000),        // largest city, in thousands
+      // Water that came from the lakes layer rather than from the open sea.
+      prov.sea && d.lakeCells[pi] * 2 > d.counts[pi] ? 1 : 0
     );
   });
 
@@ -1153,6 +1162,8 @@ function emit(d) {
     '/*\n' +
     ' * Generated by tools/buildmap.js — do not edit by hand.\n' +
     ' *\n' +
+    ' * ' + Era.title + ' (era ' + Era.id + ').\n' +
+    ' *\n' +
     ' * Real country borders from Natural Earth (admin-0 countries and lakes,\n' +
     ' * 1:50m), projected with the Miller cylindrical projection and cut into\n' +
     ' * playable provinces.  Province names come from Natural Earth populated\n' +
@@ -1162,6 +1173,9 @@ function emit(d) {
     "  'use strict';\n" +
     '  global.IA = global.IA || {};\n' +
     '  global.IA.WorldMap = {\n' +
+    '    era: ' + JSON.stringify(Era.id) + ', eraTitle: ' + JSON.stringify(Era.title) + ',\n' +
+    '    start: ' + JSON.stringify(Era.start) + ', openingWar: ' + (Era.openingWar ? 'true' : 'false') + ',\n' +
+    '    armisticeDays: ' + Era.armisticeDays + ',\n' +
     '    mapW: ' + MAP_W + ', mapH: ' + MAP_H + ', sub: ' + SUB + ',\n' +
     '    latMax: ' + LAT_MAX + ', latMin: ' + LAT_MIN + ',\n' +
     '    landProvinceCount: ' + d.landProvinceCount + ',\n' +

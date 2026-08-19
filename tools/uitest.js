@@ -93,7 +93,7 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
 
   // Deterministic seed and a fixed nation so runs are comparable.
   await page.fill('#seedInput', 'ui-test');
-  await page.click('.nation-card:has-text("Austria-Hungary")');
+  await page.click('.nation-card:has-text("Türkiye")');
   await page.click('#startBtn');
   await page.waitForSelector('#game.show', { timeout: 20000 });
   await page.waitForTimeout(900);
@@ -107,7 +107,7 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
       seed: s.seed
     };
   });
-  if (info.player !== 'AUH') fail('nation selection ignored, got ' + info.player);
+  if (info.player !== 'TUR') fail('nation selection ignored, got ' + info.player);
   if (info.provinces < 1) fail('player owns no provinces');
 
   var applied = await page.evaluate(function () {
@@ -493,8 +493,8 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
   await page.click('.nav-btn[data-nav="diplomacy"]');
   await page.waitForSelector('#modalBackdrop.show');
   /*
-   * In 1914 most of the listed powers are already at war, and those rows offer
-   * peace rather than a declaration.  Find the first row that actually has a
+   * Some of the listed powers may already be at war, and those rows offer peace
+   * rather than a declaration.  Find the first row that actually has a
    * declare-war button and read the name from that same row.
    */
   var warTarget = await page.evaluate(function () {

@@ -53,11 +53,12 @@
       out[k] = (opts && opts[k] !== undefined) ? opts[k] : DEFAULT_SETTINGS[k];
     }
     /*
-     * The historical option is the real date rather than a number of years, so
-     * it lands on 11 November 1918 exactly instead of three days past it.
+     * The default length belongs to the era: 1914 runs to the armistice that
+     * actually ended it, the present day to a round four years.  Anything else
+     * is a plain number of years.
      */
     out.armisticeDay = out.warYears === 'historical'
-      ? IA.weather.dayOfDate(1918, 10, 11)
+      ? ((IA.WorldMap && IA.WorldMap.armisticeDays) || 1567)
       : Math.round(out.warYears * 365);
     return out;
   }
@@ -201,17 +202,26 @@
     IA.commanders.init(state, rng);
     state.rngState = rng.s;
 
-    pushLog(state, 'world', 'The war begins. ' + state.nationById[playerId].name +
-      ' mobilises as tensions collapse into open conflict.');
+    pushLog(state, 'world', (IA.WorldMap && IA.WorldMap.openingWar === false
+      ? 'The crisis begins. ' + state.nationById[playerId].name +
+        ' mobilises as the peace starts to come apart.'
+      : 'The war begins. ' + state.nationById[playerId].name +
+        ' mobilises as tensions collapse into open conflict.'));
     return state;
   }
 
   /*
-   * The alliances of August 1914 are already signed and the shooting has
-   * started.  Members of a bloc are allied to each other and at war with the
-   * opposing bloc; everyone else begins neutral and can be courted or invaded.
+   * The alignments the map ships with.  Members of a bloc are allied to each
+   * other; everyone else begins unaligned and can be courted or invaded.
+   *
+   * What happens between blocs is the difference between the two worlds.  In
+   * 1914 the alliances are signed and the shooting has already started, so
+   * opposing blocs open at war.  In the present day they open armed and cold —
+   * no treaty either way and a poor opinion of each other — and whether that
+   * becomes a war is the thing the campaign is about.
    */
   function openingDiplomacy(state) {
+    var shooting = !IA.WorldMap || IA.WorldMap.openingWar !== false;
     var i, j;
     for (i = 0; i < state.nations.length; i++) {
       var a = state.nations[i];
@@ -222,9 +232,11 @@
         if (a.bloc === b.bloc) {
           IA.diplomacy.setTreaty(state, a.id, b.id, 'alliance');
           IA.diplomacy.setRelation(state, a.id, b.id, 65);
-        } else {
+        } else if (shooting) {
           IA.diplomacy.setTreaty(state, a.id, b.id, 'war');
           IA.diplomacy.setRelation(state, a.id, b.id, -70);
+        } else {
+          IA.diplomacy.setRelation(state, a.id, b.id, -45);
         }
       }
     }

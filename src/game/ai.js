@@ -467,8 +467,20 @@
     // the opening days; the map needs time to settle.
     var mayDeclare = state.time > 72;      // a few days of calm before the first shot
     var contacts = nation.contacts || [];
+    /*
+     * A world that did not open at war does not become one overnight.  Where
+     * the campaign starts cold, far fewer powers are looking for a war and the
+     * ones that are need an actual grievance rather than merely a weaker
+     * neighbour — so the first shots come along the line the blocs already
+     * dislike each other across, and the rest of the map has to be talked into
+     * it. Where the campaign opens with the guns already firing, this is the
+     * appetite that produced a world war and it is left alone.
+     */
+    var cold = IA.WorldMap && IA.WorldMap.openingWar === false;
+    var grievance = cold ? -15 : 25;
     // The campaign settings scale everyone's appetite for a new war at once.
-    var appetite = nation.aggression * 0.16 * ((state.settings && state.settings.aggression) || 1);
+    var appetite = nation.aggression * (cold ? 0.03 : 0.16) *
+      ((state.settings && state.settings.aggression) || 1);
     if (mayDeclare && contacts.length && rng.chance(appetite)) {
       var prey = null;
       // Only bordering nations are worth a war; there is no way to reach the
@@ -479,7 +491,7 @@
         var t = IA.state.treaty(state, nation.id, other.id);
         if (t === 'alliance' || t === 'nap' || t === 'war') continue;
         var rel = IA.diplomacy.relation(state, nation.id, other.id);
-        if (rel > 25) continue;
+        if (rel > grievance) continue;
         var myP = IA.state.nationPower(state, nation.id);
         var theirP = IA.state.nationPower(state, other.id);
         if (theirP > myP * 0.75) continue;

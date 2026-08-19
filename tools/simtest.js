@@ -71,7 +71,7 @@ var days = Number(process.argv[2] || 40);
 var seed = process.argv[3] || 'smoke-1';
 // A fixed mid-sized nation keeps runs comparable. The "player" never acts, so
 // a tiny country would simply be overrun and cut the run short.
-var playerNation = process.argv[4] || 'AUH';
+var playerNation = process.argv[4] || 'TUR';
 
 console.log('Generating world (seed "' + seed + '")...');
 var t0 = Date.now();
@@ -96,7 +96,7 @@ console.log('  armies at start: ' + state.armies.length + ', total VP ' + state.
   ', victory at ' + state.victoryVP);
 
 // The map is real geography, so these must hold on every seed.
-var KNOWN = { FRA: 'Paris', GER: 'Berlin', AUH: 'Vienna', OTT: 'Constantinople', RUS: 'Petrograd' };
+var KNOWN = { FRA: 'Paris', DEU: 'Berlin', TUR: 'Ankara', RUS: 'Moscow', USA: 'Washington' };
 Object.keys(KNOWN).forEach(function (iso) {
   var nat = state.nationById[iso];
   if (!nat) { check('nation ' + iso + ' exists', false); return; }
@@ -104,28 +104,103 @@ Object.keys(KNOWN).forEach(function (iso) {
   check('nation ' + iso + ' holds its capital', cap && cap.nationId === iso,
     cap ? cap.name + ' owned by ' + cap.nationId : 'missing');
 });
-check('the map is 1914, not the present day',
-  !!state.nationById.AUH && !!state.nationById.OTT && !state.nationById.TUR,
-  'AUH=' + !!state.nationById.AUH + ' OTT=' + !!state.nationById.OTT + ' TUR=' + !!state.nationById.TUR);
-check('the blocs are at war on day one',
-  IA.state.treaty(state, 'GER', 'FRA') === 'war' && IA.state.treaty(state, 'GER', 'AUH') === 'alliance',
-  'GER/FRA=' + IA.state.treaty(state, 'GER', 'FRA') + ' GER/AUH=' + IA.state.treaty(state, 'GER', 'AUH'));
-check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peace');
+check('the map is the present day, not 1914',
+  !!state.nationById.TUR && !!state.nationById.UKR && !state.nationById.AUH,
+  'TUR=' + !!state.nationById.TUR + ' UKR=' + !!state.nationById.UKR +
+  ' AUH=' + !!state.nationById.AUH);
+check('the successor states exist in their own right',
+  ['POL', 'CZE', 'FIN', 'IND', 'IDN'].every(function (iso) { return !!state.nationById[iso]; }),
+  ['POL', 'CZE', 'FIN', 'IND', 'IDN'].filter(function (iso) {
+    return !state.nationById[iso];
+  }).join(', ') + ' missing');
+check('the standing alliance is signed',
+  IA.state.treaty(state, 'DEU', 'FRA') === 'alliance',
+  'DEU/FRA=' + IA.state.treaty(state, 'DEU', 'FRA'));
+check('but nobody is shooting on the first morning',
+  IA.state.treaty(state, 'DEU', 'RUS') === 'peace' &&
+  state.nations.every(function (n) { return (n.warCount || 0) === 0; }),
+  'DEU/RUS=' + IA.state.treaty(state, 'DEU', 'RUS') + ', ' +
+  state.nations.filter(function (n) { return n.warCount; }).length + ' powers at war');
+check('and the blocs already dislike each other',
+  IA.diplomacy.relation(state, 'DEU', 'RUS') < -20,
+  String(Math.round(IA.diplomacy.relation(state, 'DEU', 'RUS'))));
+check('the unaligned start out of it', IA.state.treaty(state, 'SWE', 'DEU') === 'alliance' ||
+  IA.state.treaty(state, 'CHE', 'DEU') === 'peace');
+
+/*
+ * Several checks below need a war to look at.  The 1914 map opens with one
+ * already running; the present-day map does not, so one is declared here — on
+ * a land neighbour where possible, so the fighting has somewhere to happen.
+ */
+var declaredForTests = [];
+
+function warFor(nationId) {
+  var me = state.nationById[nationId];
+  var existing = state.nations.filter(function (n) {
+    return n.alive && IA.state.atWar(state, nationId, n.id);
+  })[0];
+  if (existing) return existing;
+  var seen = {}, options = [];
+  for (var i = 0; i < me.provinces.length; i++) {
+    var prov = state.provinces[me.provinces[i]];
+    for (var k = 0; k < prov.neighbors.length; k++) {
+      var np = state.provinces[prov.neighbors[k]];
+      if (np.isSea || !np.nationId || np.nationId === nationId || seen[np.nationId]) continue;
+      seen[np.nationId] = true;
+      var foe = state.nationById[np.nationId];
+      if (!foe || !foe.alive) continue;
+      // Never on an ally: turning on your own bloc brings the whole of it down
+      // on you, and the run is over before the checks that need it.
+      if (IA.state.treaty(state, nationId, foe.id) === 'alliance') continue;
+      options.push(foe);
+    }
+  }
+  // Ringed by allies, or an island: anyone outside the bloc will do.
+  if (!options.length) {
+    options = state.nations.filter(function (n) {
+      return n.alive && n.id !== nationId &&
+        IA.state.treaty(state, nationId, n.id) !== 'alliance';
+    });
+  }
+  if (!options.length) return null;
+  /*
+   * The weakest of them.  These checks need a war to look at, not a war the
+   * player loses on day twenty — being overrun ends the run and takes every
+   * check after it down as well.
+   */
+  options.sort(function (a, b) {
+    return IA.state.nationPower(state, a.id) - IA.state.nationPower(state, b.id);
+  });
+  IA.diplomacy.setTreaty(state, nationId, options[0].id, 'war');
+  IA.diplomacy.refreshWarCounts(state);
+  declaredForTests.push([nationId, options[0].id]);
+  return options[0];
+}
 
 /*
  * Supply is cut by troops standing on the ground, not only by losing it.
  *
- * On day one nobody has built a depot, so the capital is a nation's only
- * source.  Put a hostile stack on every province around it and the rest of the
- * country must go dark — if it does not, supply is leaking through the enemy.
+ * The world ships with railways and harbours, so a country has many sources
+ * and blocking one road proves nothing.  This strips the player back to its
+ * capital — no railheads, no depots, no port — puts a hostile stack on every
+ * province around it, and requires the rest of the country to go dark.  If it
+ * does not, supply is leaking through the enemy.
  */
 (function () {
   var player = state.nationById[state.playerId];
   var cap = state.provinces[player.capitalProvince];
-  var foe = state.nations.filter(function (n) {
-    return n.alive && IA.state.atWar(state, state.playerId, n.id);
-  })[0];
+  var foe = warFor(state.playerId);
   if (!foe) { check('the player has a war to test supply with', false); return; }
+
+  // Take away every source but the capital, and every lane out of it.
+  var stripped = [];
+  player.provinces.forEach(function (id) {
+    var p = state.provinces[id];
+    if (!p.buildings.railway && !p.buildings.warehouse && !p.buildings.harbour) return;
+    stripped.push({ prov: p, had: p.buildings });
+    p.buildings = {};
+  });
+  IA.economy.refreshSupply(state);
 
   var before = player.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length;
   check('supply reaches beyond the capital to begin with', before > 1, 'reached ' + before);
@@ -148,33 +223,92 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
   IA.economy.refreshSupply(state);
   check('supply comes back once the road is clear',
     player.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length === before);
+  stripped.forEach(function (row) { row.prov.buildings = row.had; });
+  IA.economy.refreshSupply(state);
 })();
 
 /*
  * The sea.
  *
- * Britain is the case the whole system exists for: an empire held together by
- * shipping, which somebody else's fleet can take apart.  Park hostile squadrons
- * on every ocean approach to every British port and three things have to
- * follow — the ports shut, the trade they carried stops, and the colonies they
- * fed go dark.  Then send the Royal Navy back out and it all has to come back.
+ * An empire held together by shipping is the case the whole system exists for,
+ * and somebody else's fleet can take it apart.  The subject is chosen from the
+ * map rather than named: whichever power has the most territory its own
+ * capital cannot be walked to.  Park hostile squadrons on every ocean approach
+ * to every one of its ports and three things have to follow — the ports shut,
+ * the trade they carried stops, and the territory they fed goes dark.  Then
+ * lift the blockade and it all has to come back.
  */
 (function () {
-  var gbr = state.nationById.GBR;
-  if (!gbr || !gbr.alive) { check('there is a naval empire to test', false); return; }
-  var foe = state.nationById.GER;
-  if (!foe || !foe.alive) { check('there is a rival fleet to test with', false); return; }
+  /** Provinces of a nation that its capital cannot be walked to. */
+  function overseasOf(nation) {
+    var mine = {}, i;
+    for (i = 0; i < nation.provinces.length; i++) mine[nation.provinces[i]] = true;
+    var stack = [nation.capitalProvince], seen = {};
+    seen[nation.capitalProvince] = true;
+    while (stack.length) {
+      var prov = state.provinces[stack.pop()];
+      for (var k = 0; k < prov.neighbors.length; k++) {
+        var id = prov.neighbors[k];
+        if (seen[id] || !mine[id] || state.provinces[id].isSea) continue;
+        seen[id] = true;
+        stack.push(id);
+      }
+    }
+    /*
+     * Only ports count.  An empty Arctic island is cut off from its capital
+     * too, but nothing was ever shipped to it and nothing is lost by shutting
+     * the lane — what this is looking for is territory that lives on convoys.
+     */
+    return nation.provinces.filter(function (id) {
+      return !seen[id] && state.provinces[id].buildings.harbour;
+    });
+  }
+
+  var empire = null, best = -1;
+  state.nations.forEach(function (n) {
+    if (!n.alive) return;
+    var far = overseasOf(n).length;
+    if (far > best) { best = far; empire = n; }
+  });
+  check('some power is held together by shipping', !!empire && best > 0,
+    empire ? empire.name + ' with ' + best + ' ports overseas' : 'nobody');
+  if (!empire || best <= 0) return;
+  var gbr = empire;
+
+  // The rival is whoever else has the largest fleet of their own.
+  var foe = null, foeGuns = -1;
+  state.nations.forEach(function (n) {
+    if (!n.alive || n.id === gbr.id) return;
+    var guns = 0;
+    IA.state.armiesOf(state, n.id).forEach(function (a) { guns += IA.naval.warshipPower(a); });
+    if (guns > foeGuns) { foeGuns = guns; foe = n; }
+  });
+  if (!foe) { check('there is a rival fleet to test with', false); return; }
   var wasTreaty = gbr.treaties[foe.id];
   gbr.treaties[foe.id] = 'war';
   foe.treaties[gbr.id] = 'war';
 
-  function supplied() {
-    return gbr.provinces.filter(function (id) { return state.provinces[id].inSupply; }).length;
+  /*
+   * Of the overseas ports, the ones that live on the convoys are those with no
+   * railhead or depot of their own — a big island city with a railway is its
+   * own source and stays lit whatever happens at sea, which is correct.
+   */
+  var far = overseasOf(gbr).filter(function (id) {
+    var p = state.provinces[id];
+    return !p.buildings.railway && !p.buildings.warehouse;
+  });
+  check('some of it lives on the convoys alone', far.length > 0,
+    far.length + ' ports with no source of their own');
+  if (!far.length) return;
+  function supplied(list) {
+    return (list || gbr.provinces).filter(function (id) { return state.provinces[id].inSupply; }).length;
   }
   IA.economy.refreshSupply(state);
   var openPorts = supplied();
+  var openFar = supplied(far);
   var openMoney = IA.economy.nationIncome(state, gbr).money;
-  check('an empire is fed across the water', openPorts > 20, 'in supply: ' + openPorts);
+  check('an empire is fed across the water', openFar > 0,
+    openFar + ' of ' + far.length + ' overseas provinces in supply');
 
   // Every stretch of ocean a British port can reach, and a German squadron on
   // each of them.
@@ -188,7 +322,7 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
     });
   });
   var approaches = Object.keys(water);
-  check('British ports have approaches to blockade', approaches.length > 5,
+  check('its ports have approaches to blockade', approaches.length > 0,
     approaches.length + ' sea zones');
   /*
    * The Royal Navy — and the allied ships sharing its water — are in the way of
@@ -214,8 +348,9 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
     Math.round(IA.naval.blockadeOf(state, gbr) * 100) + '% of the coast');
   check('and takes the trade with it', shutMoney < openMoney * 0.8,
     openMoney.toFixed(0) + ' -> ' + shutMoney.toFixed(0) + ' an hour');
-  check('and the empire beyond the ports goes dark', shutPorts < openPorts * 0.75,
-    openPorts + ' -> ' + shutPorts + ' provinces in supply');
+  check('and the territory the lanes fed goes dark', supplied(far) === 0,
+    openFar + ' -> ' + supplied(far) + ' overseas provinces in supply, ' +
+    openPorts + ' -> ' + shutPorts + ' in all');
 
   /*
    * Escorts are the other half of it: a convoy gets through while the ships
@@ -275,10 +410,11 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
  */
 (function () {
   var was = state.time;
-  check('the war opens in July 1914', IA.weather.formatDate(state) === '28 July 1914',
-    IA.weather.formatDate(state));
+  var opening = IA.weather.formatDate(state);
+  check('the campaign opens on the era\u2019s own date',
+    opening === IA.weather.formatDate({ time: 0 }), opening);
 
-  var north = state.provinces[state.nationById.RUS.capitalProvince];   // Petrograd
+  var north = state.provinces[state.nationById.RUS.capitalProvince];   // Moscow
   var south = null;
   for (var i = 0; i < state.provinces.length; i++) {
     var p = state.provinces[i];
@@ -296,7 +432,9 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
   }
   check('all four seasons come round', seasonsOverAYear(north) === 'autumn,spring,summer,winter');
 
-  state.time = 180 * 24;                    // late January 1915
+  // A January well inside the campaign, whatever month the era opens in.
+  var opensIn = new Date(IA.weather.START).getUTCFullYear();
+  state.time = IA.weather.dayOfDate(opensIn + 1, 0, 20) * 24;
   check('January is winter in the north', IA.weather.season(state, north) === 'winter',
     IA.weather.season(state, north));
   if (south) {
@@ -315,10 +453,11 @@ check('neutrals start out of it', IA.state.treaty(state, 'SWE', 'GER') === 'peac
   check('bad weather slows an army', IA.weather.WEATHER.blizzard.speed < 0.5);
 
   // Weather is derived from the seed and the day, so it must be reproducible.
+  var winter = state.time;
   var sample = state.provinces[north.id].weather;
   state.time = 12 * 24;
   IA.weather.refresh(state);
-  state.time = 180 * 24;
+  state.time = winter;
   IA.weather.refresh(state);
   check('weather is a pure function of the day', state.provinces[north.id].weather === sample);
 
@@ -470,6 +609,18 @@ check('land provinces exceed 150', land > 150, 'got ' + land);
 check('sea zones exceed 30', sea > 30, 'got ' + sea);
 check('neutral land exists', neutral > 0);
 
+/*
+ * The wars declared above were staged for the checks that needed one.  Leaving
+ * them running would have the player fighting a war it never chose from the
+ * first hour, which in a world that opens at peace gets it overrun and ends the
+ * run long before the checks that come after.  The long run is for the wars the
+ * world starts by itself.
+ */
+declaredForTests.forEach(function (pair) {
+  IA.diplomacy.setTreaty(state, pair[0], pair[1], 'peace');
+});
+if (declaredForTests.length) IA.diplomacy.refreshWarCounts(state);
+
 // The player takes no actions; this exercises the AI, economy and combat.
 var hours = days * 24;
 var t1 = Date.now();
@@ -612,15 +763,29 @@ if (player.alive && player.provinces.length) {
 (function () {
   var me = state.nationById[state.playerId];
   var cap = state.provinces[me.capitalProvince];
-  var foe = state.nations.filter(function (n) {
-    return n.alive && IA.state.atWar(state, me.id, n.id);
-  })[0];
+  var foe = warFor(me.id);
   if (!foe) { check('there is a war to test the line in', false); return; }
 
+  /*
+   * Somewhere with its own ground on every side.  The capital will not do: on
+   * this map it often has a foreign neighbour already, which makes it a salient
+   * before the test has planted anything and leaves nothing to measure.
+   */
+  var seat = cap;
+  for (var pi = 0; pi < me.provinces.length; pi++) {
+    var candidate = state.provinces[me.provinces[pi]];
+    var land = candidate.neighbors.filter(function (id) { return !state.provinces[id].isSea; });
+    if (land.length < 2) continue;
+    if (land.every(function (id) { return state.provinces[id].nationId === me.id; })) {
+      seat = candidate;
+      break;
+    }
+  }
+  cap = seat;
   var neighbours = cap.neighbors
     .map(function (id) { return state.provinces[id]; })
     .filter(function (p) { return !p.isSea; });
-  if (neighbours.length < 2) { check('the capital has land neighbours', false); return; }
+  if (neighbours.length < 2) { check('the position has land neighbours', false); return; }
 
   var planted = [];
   function clear() {
@@ -677,6 +842,12 @@ check('supply lines get cut over a war of this length', sawCutOff > 0);
     if (n.alive && n.id !== me.id && IA.state.atWar(state, me.id, n.id) && n.provinces.length > 1) {
       foe = n; break;
     }
+  }
+  // Spying is not confined to wartime, and by now the player may be at peace.
+  if (!foe) {
+    foe = state.nations.filter(function (n) {
+      return n.alive && n.id !== me.id && n.provinces.length > 1;
+    })[0];
   }
   if (!foe) { check('there is somebody to spy on', false); return; }
 
@@ -779,7 +950,13 @@ check('supply lines get cut over a war of this length', sawCutOff > 0);
     }
   }
   check('officers exist at all', state.commanders.length > 20, String(state.commanders.length));
-  check('officers are promoted by fighting', promoted > 0);
+  var topXp = 0;
+  for (var x = 0; x < state.commanders.length; x++) {
+    if (state.commanders[x].xp > topXp) topXp = state.commanders[x].xp;
+  }
+  check('officers gain experience under fire', topXp > 0, 'best ' + topXp.toFixed(1) + ' xp');
+  check('officers are promoted by fighting', promoted > 0,
+    'best ' + topXp.toFixed(1) + ' xp, first rank at ' + IA.CommanderData.RANKS[1].xp);
 
   /*
    * A second speciality opens at Major General, which a forty-day war does not

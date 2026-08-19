@@ -1,10 +1,10 @@
 /*
  * The calendar, the seasons, and the weather over each province.
  *
- * The war opens on 28 July 1914 and the clock runs from there, so the seasons
- * arrive when they should: the autumn rains turn the ground to mud, the winter
- * closes the mountain passes, and an offensive launched in October moves at
- * half the pace of one launched in June.
+ * The clock starts on whatever date the compiled map says its era begins, and
+ * runs from there, so the seasons arrive when they should: the autumn rains
+ * turn the ground to mud, the winter closes the mountain passes, and an
+ * offensive launched in October moves at half the pace of one launched in June.
  *
  * Weather is settled once a day.  It is drawn per weather cell rather than per
  * province — roughly twelve degrees of longitude by ten of latitude — so a
@@ -17,7 +17,9 @@
 
   var IA = global.IA = global.IA || {};
 
-  var START = Date.UTC(1914, 6, 28);              // 28 July 1914
+  /* The opening date belongs to the era, not to this file. */
+  var ERA_START = (IA.WorldMap && IA.WorldMap.start) || { year: 1914, month: 6, day: 28 };
+  var START = Date.UTC(ERA_START.year, ERA_START.month, ERA_START.day);
   var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
     'August', 'September', 'October', 'November', 'December'];
 
@@ -170,6 +172,7 @@
   function of(prov) { return WEATHER[prov && prov.weather] || WEATHER.clear; }
 
   IA.weather = {
+    START: START,
     refresh: refresh, of: of, WEATHER: WEATHER,
     dateOf: dateOf, dayOfDate: dayOfDate, formatDate: formatDate, shortDate: shortDate,
     season: season, seasonAt: seasonAt, climateOf: climateOf, dayOfWar: dayOfWar

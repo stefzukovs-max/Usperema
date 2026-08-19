@@ -1,7 +1,7 @@
 {
   "name": "iron-accord",
   "version": "1.0.0",
-  "description": "Iron Accord — a Great War grand strategy game in the browser, no build step required.",
+  "description": "Iron Accord — a real-time grand strategy game in the browser, no build step required.",
   "private": true,
   "scripts": {
     "start": "npx http-server . -p 8080 -c-1",

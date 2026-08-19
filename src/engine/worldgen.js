@@ -183,6 +183,7 @@
       var prov = {
         id: i,
         isSea: src.isSea,
+        isLake: !!src.isLake,
         name: src.name,
         cx: src.cx, cy: src.cy,
         lon: lon, lat: lat,
@@ -218,33 +219,12 @@
     }
 
     /*
-     * Lakes are not the sea.
-     *
-     * The map compiler calls any water a sea zone, so an Alpine lake ends up
-     * looking like an anchorage — which would let a squadron blockade
-     * Switzerland.  Water that leads nowhere is marked as such, and everything
-     * to do with shipping ignores it.
+     * A province is a seaport only if the water it touches goes somewhere.  The
+     * map compiler marks water that came from the lakes layer, because at this
+     * resolution the Aegean and Lake Victoria are the same size and both are
+     * ringed by land — without the distinction a squadron could blockade
+     * Switzerland.
      */
-    var seaSeen = {};
-    for (i = 0; i < map.provinceCount; i++) {
-      if (!provinces[i].isSea || seaSeen[i]) continue;
-      var stack = [i], body = [];
-      seaSeen[i] = true;
-      while (stack.length) {
-        var at = stack.pop();
-        body.push(at);
-        var nbrs = provinces[at].neighbors;
-        for (var q = 0; q < nbrs.length; q++) {
-          if (provinces[nbrs[q]].isSea && !seaSeen[nbrs[q]]) {
-            seaSeen[nbrs[q]] = true;
-            stack.push(nbrs[q]);
-          }
-        }
-      }
-      var lake = body.length < LAKE_MAX;
-      for (var t = 0; t < body.length; t++) provinces[body[t]].isLake = lake;
-    }
-    // And a province is a seaport only if the water it touches goes somewhere.
     for (i = 0; i < map.provinceCount; i++) {
       var lp = provinces[i];
       lp.seaport = false;

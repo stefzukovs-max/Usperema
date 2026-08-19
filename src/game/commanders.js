@@ -16,7 +16,14 @@
   var Data = IA.CommanderData;
   var clamp = IA.util.clamp;
 
-  var XP_PER_BATTLE_HOUR = 0.55;
+  /*
+   * Hours under fire per point of experience.  Tuned so that a stack which
+   * actually does the fighting sees its officer make Brigadier inside a couple
+   * of days of it — the old rate was set for a world at war from the first
+   * hour, and in a campaign that opens at peace it left the whole rank system
+   * looking dead for the first month.
+   */
+  var XP_PER_BATTLE_HOUR = 0.85;
   var PROMOTE_COST = 2200;          // money, to bring a new officer forward
   var LOSS_KILLED = 0.5;            // chance an officer goes down with his stack
 

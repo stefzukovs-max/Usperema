@@ -203,11 +203,81 @@ var PERIOD_NAMES = {
   'Klaipėda': 'Memel'
 };
 
+/*
+ * Spot checks on the 1914 composition.  These cities must sit inside the power
+ * that actually held them, which exercises the territory table, the frontier
+ * splits and the raster all at once.  Warsaw, Poznan and Lviv are the
+ * interesting ones: they check that partitioned Poland was carved correctly.
+ */
+var CAPITAL_CHECKS = [
+  ['France', 2.35, 48.86],                   // Paris
+  ['German Empire', 13.40, 52.52],           // Berlin
+  ['German Empire', 7.75, 48.58],            // Strasbourg, in Alsace-Lorraine
+  ['German Empire', 16.93, 52.41],           // Poznan, in Prussian Poland
+  ['Austria-Hungary', 16.37, 48.21],         // Vienna
+  ['Austria-Hungary', 14.42, 50.09],         // Prague, in Bohemia
+  ['Austria-Hungary', 24.03, 49.84],         // Lviv, in Galicia
+  ['Austria-Hungary', 23.60, 46.77],         // Cluj, in Transylvania
+  ['Russian Empire', 21.01, 52.23],          // Warsaw, in Congress Poland
+  ['Russian Empire', 30.32, 59.94],          // Petrograd
+  ['Russian Empire', 24.75, 59.44],          // Reval, in the Baltic provinces
+  ['Ottoman Empire', 28.98, 41.01],          // Constantinople
+  ['Ottoman Empire', 44.36, 33.31],          // Baghdad, in Mesopotamia
+  ['British Empire', -0.13, 51.51],          // London
+  ['British Empire', 77.21, 28.61],          // Delhi
+  ['British Empire', 31.24, 30.04],          // Cairo
+  ['Empire of Japan', 139.69, 35.69],        // Tokyo
+  ['Empire of Japan', 126.98, 37.57],        // Seoul, annexed in 1910
+  ['Belgium', 15.31, -4.32],                 // Leopoldville, in the Congo
+  ['Netherlands', 106.83, -6.18],            // Batavia, in the East Indies
+  ['United States', -77.04, 38.91],          // Washington
+  ['Serbia', 20.47, 44.80],                  // Belgrade
+  ['Brazil', -43.20, -22.91]                 // Rio de Janeiro
+];
+
+/**
+ * The powers of 1914, and a lookup from a present-day territory to whichever
+ * of them held it.  Anything the table does not name is left unclaimed rather
+ * than guessed at.
+ */
+function nationsFrom() {
+  var nations = [];
+  var byIso = {};
+  POWERS.forEach(function (power) {
+    byIso[power.id] = nations.length;
+    nations.push({
+      iso: power.id, name: power.name, bloc: power.bloc,
+      capitalCity: power.capital, area: 0, cells: [], pop: 0
+    });
+  });
+  return {
+    nations: nations,
+    indexFor: function (p) {
+      if (p.ADM0_A3 === 'ATA' || p.ISO_A3 === 'ATA') return -2;
+      if (p.TYPE === 'Disputed' || p.TYPE === 'Indeterminate') return -2;
+      var iso = p.ISO_A3_EH && p.ISO_A3_EH !== '-99' ? p.ISO_A3_EH
+        : (p.ISO_A3 && p.ISO_A3 !== '-99' ? p.ISO_A3 : p.ADM0_A3);
+      var powerId = HELD_BY[iso];
+      if (powerId === undefined) return -1;                 // nobody's, and named as such
+      return byIso[powerId];
+    }
+  };
+}
+
 module.exports = {
+  id: '1914',
+  title: 'The Great War',
+  start: { year: 1914, month: 6, day: 28 },
+  /* To 11 November 1918: the armistice that actually ended it. */
+  armisticeDays: Math.round((Date.UTC(1918, 10, 11) - Date.UTC(1914, 6, 28)) / 86400000),
+  /* The blocs are already shooting on the first morning. */
+  openingWar: true,
+  nationsFrom: nationsFrom,
   POWERS: POWERS,
   HELD_BY: HELD_BY,
   SPLITS: SPLITS,
   PERIOD_NAMES: PERIOD_NAMES,
+  CAPITAL_CHECKS: CAPITAL_CHECKS,
   byId: function (id) {
     for (var i = 0; i < POWERS.length; i++) if (POWERS[i].id === id) return POWERS[i];
     return null;

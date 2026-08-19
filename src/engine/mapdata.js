@@ -61,7 +61,7 @@
     var provinces = new Array(raw.provinceCount);
     var adjCursor = 0, loopCursor = 0;
 
-    var META_FIELDS = 12;
+    var META_FIELDS = 13;
     for (var p = 0; p < raw.provinceCount; p++) {
       var m = p * META_FIELDS;
       var neighbors = new Array(adj[adjCursor++]);
@@ -87,6 +87,7 @@
         bbox: [meta[m + 6] / sub, meta[m + 7] / sub, meta[m + 8] / sub, meta[m + 9] / sub],
         people: meta[m + 10],            // inhabitants in thousands
         topCity: meta[m + 11],           // largest city in thousands
+        isLake: meta[m + 12] === 1,      // a lake, not a stretch of open sea
         neighbors: neighbors,
         loops: loops,
         name: raw.provinceNames[p]

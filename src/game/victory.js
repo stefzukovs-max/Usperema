@@ -162,7 +162,7 @@
       // The date moves with the campaign settings, so it cannot be a fixed
       // string: a one-year war does not end in November 1918.
       detailFor: function (state) {
-        var end = new Date(Date.UTC(1914, 6, 28) + armisticeDay(state) * 86400000);
+        var end = new Date(IA.weather.START + armisticeDay(state) * 86400000);
         return 'Lead on victory points when the guns fall silent on ' +
           end.getUTCDate() + ' ' + MONTHS[end.getUTCMonth()] + ' ' + end.getUTCFullYear() + '.';
       },
