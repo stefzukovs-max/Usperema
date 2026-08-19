@@ -102,6 +102,54 @@
     });
 
     doc.getElementById('closePanel').addEventListener('click', function () { self.clearSelection(); });
+
+    /*
+     * The sheet can be dragged.  Two detents and nothing in between: up to full
+     * height for a long read, down to gone.  Following the finger while it is
+     * down is what makes it feel like a sheet rather than a panel that happens
+     * to slide.
+     */
+    (function () {
+      var panel = doc.getElementById('panel');
+      var grip = doc.getElementById('sheetGrip');
+      panel.addEventListener('transitionend', function (e) {
+        if (e.target === panel) self.noteChrome();
+      });
+      if (!grip) return;
+      var startY = 0, from = 0, active = false;
+      grip.addEventListener('pointerdown', function (e) {
+        active = true;
+        startY = e.clientY;
+        from = panel.classList.contains('tall') ? 1 : 0;
+        panel.classList.add('dragging');
+        grip.setPointerCapture(e.pointerId);
+      });
+      grip.addEventListener('pointermove', function (e) {
+        if (!active) return;
+        var dy = e.clientY - startY;
+        // Upward drag is resisted at the top detent; downward is free.
+        var show = from ? Math.max(0, dy) : Math.max(0, dy);
+        panel.style.transform = 'translateY(' + show + 'px)';
+      });
+      function release(e) {
+        if (!active) return;
+        active = false;
+        panel.classList.remove('dragging');
+        panel.style.transform = '';
+        var dy = e.clientY - startY;
+        if (dy < -40) { panel.classList.add('tall'); }
+        else if (dy > 70) { self.clearSelection(); }
+        else if (dy > 12 && from) { panel.classList.remove('tall'); }
+        self.noteChrome();
+      }
+      grip.addEventListener('pointerup', release);
+      grip.addEventListener('pointercancel', release);
+      // And a tap on the handle toggles, for anyone who would rather not drag.
+      grip.addEventListener('click', function () {
+        panel.classList.toggle('tall');
+        self.noteChrome();
+      });
+    })();
     doc.getElementById('modalClose').addEventListener('click', function () { self.closeModal(); });
     doc.getElementById('modalBackdrop').addEventListener('click', function (e) {
       if (e.target === e.currentTarget) self.closeModal();
@@ -205,6 +253,23 @@
     if (global.ResizeObserver) {
       var ro = new global.ResizeObserver(function () { self.renderer.resize(); });
       ro.observe(self.canvas);
+
+      /*
+       * The floating chrome has to know how tall the real bars are, because
+       * everything laid over the map is positioned off them and the status bar
+       * changes height with the notch, the font and how many stockpiles fit on
+       * a line.  Measured rather than guessed.
+       */
+      var game = doc.getElementById('game');
+      var top = doc.getElementById('topbar');
+      var nav = doc.getElementById('bottomNav');
+      var chrome = new global.ResizeObserver(function () {
+        game.style.setProperty('--top-h', Math.round(top.getBoundingClientRect().height) + 'px');
+        game.style.setProperty('--nav-h', Math.round(nav.getBoundingClientRect().height) + 'px');
+        self.noteChrome();
+      });
+      chrome.observe(top);
+      chrome.observe(nav);
     }
 
     doc.addEventListener('keydown', function (e) {
@@ -300,9 +365,65 @@
    * grid needs to know as well.
    */
   UI.setPanelOpen = function (open) {
-    doc.getElementById('panel').classList.toggle('open', !!open);
+    var panel = doc.getElementById('panel');
+    var was = panel.classList.contains('open');
+    panel.classList.toggle('open', !!open);
+    if (!open) panel.classList.remove('tall');
     var game = doc.getElementById('game');
     if (game) game.classList.toggle('panel-open', !!open);
+    this.noteChrome();
+    // Never leave the selection where the interface is sitting on it.
+    if (open) this.revealSelection();
+  };
+
+  /**
+   * Tell the map how much of itself the interface is currently sitting on.
+   *
+   * Measured from the elements' laid-out sizes rather than their live
+   * rectangles: the sheet spends a quarter of a second sliding into place, and
+   * asking where it is mid-slide answers for where it was, which is how the
+   * map ended up centring the selection behind it.
+   */
+  UI.noteChrome = function () {
+    if (!this.renderer) return;
+    var map = this.canvas.getBoundingClientRect();
+    var top = doc.getElementById('topbar');
+    var panel = doc.getElementById('panel');
+    var nav = doc.getElementById('bottomNav');
+    var panelBox = panel.getBoundingClientRect();
+    // A sheet lies over the map; a docked column sits beside it.  Horizontal
+    // overlap tells them apart and does not move while the sheet animates.
+    var over = panelBox.left < map.right - 1 && panelBox.right > map.left + 1;
+    var sheet = over && panel.classList.contains('open') ? panel.offsetHeight : 0;
+    var navBox = nav.getBoundingClientRect();
+    var bar = navBox.left < map.right - 1 && navBox.top < map.bottom - 1
+      ? map.bottom - navBox.top : 0;
+    var topBox = top.getBoundingClientRect();
+    var head = topBox.bottom > map.top && topBox.left < map.right - 1
+      ? topBox.bottom - map.top : 0;
+    this.renderer.setInset(Math.max(0, head), Math.max(0, sheet + bar, bar));
+  };
+
+  /*
+   * If what is selected is already somewhere you can look at it, leave the map
+   * alone — snatching the view away from under a finger that just tapped is
+   * worse than anything it fixes.  Only when the selection is behind the sheet,
+   * under the status bar or off the screen entirely does the map move, and then
+   * it puts it in the middle of the clear band.
+   */
+  UI.revealSelection = function () {
+    var id = this.selectedArmyId
+      ? (IA.state.armyById(this.state, this.selectedArmyId) || {}).provinceId
+      : this.selectedProvinceId;
+    if (id === undefined || id === null) return;
+    var prov = this.state.provinces[id];
+    if (!prov) return;
+    var r = this.renderer;
+    var at = r.toScreen(prov.cx, prov.cy);
+    var top = (r.insetTop || 0) + 12;
+    var bottom = r.viewH - (r.insetBottom || 0) - 12;
+    if (at.y >= top && at.y <= bottom && at.x >= 12 && at.x <= r.viewW - 12) return;
+    r.centerOn(id, r.camera.zoom);
   };
 
   UI.clearSelection = function () {
@@ -486,9 +607,21 @@
     var host = doc.getElementById('mapModes');
     if (!host) return;
     clear(host);
+    host.classList.remove('open');
+    var current = IA.Renderer.MODES[this.renderer.mode] || IA.Renderer.MODES.political;
+    host.appendChild(el('button', {
+      class: 'mode-toggle', title: 'Choose what the map is showing',
+      onclick: function () { host.classList.toggle('open'); IA.audio.play('select'); }
+    }, [
+      el('span', { text: '\u25A6' }),
+      el('span', { text: current.name }),
+      el('span', { class: 'caret', text: '\u25BC' })
+    ]));
+    var list = el('div', { class: 'mode-list' });
+    host.appendChild(list);
     IA.Renderer.MODE_ORDER.forEach(function (id) {
       var spec = IA.Renderer.MODES[id];
-      host.appendChild(el('button', {
+      list.appendChild(el('button', {
         class: 'mode-btn' + (self.renderer.mode === id ? ' on' : ''),
         text: spec.name, title: spec.hint,
         onclick: function () {

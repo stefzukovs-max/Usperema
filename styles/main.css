@@ -1,9 +1,15 @@
-/* Supremacy: World War III — dark command-console styling, mobile first. */
+/* Iron Accord — dark command-console styling, mobile first. */
 
 /*
- * The whole theme lives in these variables: a 1914 staff map spread on a dark
- * table — aged paper, olive drab, gun-metal and brass, with ink for lines and
- * a muted red reserved for danger.  Change these and the game changes with it.
+ * The whole theme lives in these variables: a situation map lit from a console
+ * — graphite, olive drab and brass, with ink for lines and a muted red
+ * reserved for danger.  Change these and the game changes with it.
+ *
+ * The layout is a phone layout first and a desktop layout second, and the two
+ * are genuinely different shapes rather than one stretched: on a phone the map
+ * fills the screen and everything else floats over it as glass, and on a wide
+ * screen the map shares a grid with a rail and a docked column (see the bottom
+ * of this file).
  */
 :root {
   --bg: #14140f;             /* the table the map lies on */
@@ -23,6 +29,10 @@
   --radius: 3px;             /* period stationery has square corners */
   --top-h: 92px;
   --nav-h: 60px;
+  --glass: rgba(18,18,14,.82);      /* chrome floating over the map */
+  --glass-line: rgba(255,255,255,.09);
+  --sheet: 54vh;                    /* how far up the detail sheet comes */
+  --safe-b: env(safe-area-inset-bottom, 0px);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -154,11 +164,22 @@ input { font: inherit; }
 
 /* ------------------------------------------------------------------- game */
 
-#game { flex-direction: column; }
+/*
+ * On a phone the map is the screen.  Nothing takes a slice out of it: the
+ * status bar, the detail sheet and the navigation all float over it as glass,
+ * so the world is still there behind whatever you are reading.  The alternative
+ * — a column of bars with the map in whatever is left — gave the map about a
+ * sixth of a phone screen once a panel was open.
+ */
+#game.show { display: block; }
 
 #topbar {
-  flex: 0 0 auto; background: linear-gradient(180deg, #2a2820, #1a1913);
-  border-bottom: 1px solid var(--line); padding: 6px 10px 5px;
+  position: absolute; left: 0; right: 0; top: 0; z-index: 20;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  border-bottom: 1px solid var(--glass-line);
+  padding: 6px 10px 6px;
   padding-top: max(6px, env(safe-area-inset-top));
 }
 .top-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
@@ -173,7 +194,12 @@ input { font: inherit; }
   padding: 3px 9px; font-size: 13px; font-weight: 600; color: var(--gold); white-space: nowrap;
 }
 
-.resource-strip { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+/* Scrolls when the stockpiles outrun the width, and says so by fading out. */
+.resource-strip {
+  display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 22px), transparent 100%);
+}
 .resource-strip::-webkit-scrollbar { display: none; }
 .res {
   display: flex; align-items: center; gap: 4px; flex: 0 0 auto;
@@ -187,16 +213,21 @@ input { font: inherit; }
 .res-rate.pos { color: var(--good); }
 .res-rate.neg { color: var(--bad); }
 
-#mapWrap { position: relative; flex: 1 1 auto; min-height: 0; }
+#mapWrap { position: absolute; inset: 0; }
 #map { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
 #map:active { cursor: grabbing; }
 
-.speed-controls { position: absolute; top: 10px; right: 10px; display: flex; gap: 4px; }
-.speed-btn {
-  background: rgba(12,26,38,.86); border: 1px solid var(--line); border-radius: 4px;
-  padding: 6px 10px; font-size: 12px; font-weight: 600; min-width: 38px;
+.speed-controls {
+  position: absolute; top: calc(var(--top-h) + 8px); right: 8px; z-index: 12;
+  display: flex; gap: 2px; padding: 2px; border-radius: 999px;
+  background: var(--glass); border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
 }
-.speed-btn.active { background: var(--accent); color: #06131c; border-color: var(--accent-2); }
+.speed-btn {
+  background: none; border: none; border-radius: 999px;
+  padding: 5px 9px; font-size: 11.5px; font-weight: 600; min-width: 30px; color: var(--dim);
+}
+.speed-btn.active { background: var(--accent); color: #14140f; }
 
 .targeting-bar {
   position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
@@ -207,10 +238,17 @@ input { font: inherit; }
 }
 .targeting-bar.show { display: flex; }
 
+/*
+ * Reports sit just above the navigation, not across the middle of the map, and
+ * there are never many: a phone screen full of news is a phone screen with no
+ * map on it.
+ */
 .toasts {
-  position: absolute; left: 10px; bottom: 10px; right: 10px;
+  position: absolute; left: 8px; right: 8px; z-index: 14;
+  bottom: calc(var(--nav-h) + var(--safe-b) + 8px);
   display: flex; flex-direction: column; gap: 6px; pointer-events: none;
 }
+.toasts .toast:nth-last-child(n+3) { display: none; }
 .toast {
   background: rgba(14,30,44,.95); border-left: 3px solid var(--accent);
   border-radius: 4px; padding: 8px 11px; font-size: 13px; max-width: 460px;
@@ -223,19 +261,53 @@ input { font: inherit; }
 
 /* ------------------------------------------------------------------ panel */
 
+/*
+ * A bottom sheet, not a drawer that shoves the map aside.  It slides over the
+ * world, comes up to a readable height, and can be dragged to full height or
+ * flicked away — which is how a phone expects to be talked to, and leaves the
+ * map visible above it either way.
+ */
 .panel {
-  flex: 0 0 auto; max-height: 0; overflow: hidden;
-  background: var(--panel); border-top: 1px solid var(--line);
-  transition: max-height .18s ease-out;
+  position: absolute; left: 0; right: 0; z-index: 18;
+  bottom: calc(var(--nav-h) + var(--safe-b));
+  height: auto; max-height: min(var(--sheet), calc(100% - var(--top-h) - 12px));
+  display: flex; flex-direction: column;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  backdrop-filter: blur(18px) saturate(1.25);
+  border-top: 1px solid var(--glass-line);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -10px 30px rgba(0,0,0,.45);
+  transform: translateY(101%);
+  transition: transform .24s cubic-bezier(.22,.9,.3,1), height .24s cubic-bezier(.22,.9,.3,1);
+  will-change: transform;
 }
-.panel.open { max-height: 52vh; display: flex; flex-direction: column; }
+.panel.open { transform: translateY(0); }
+.panel.tall {
+  height: calc(100% - var(--top-h) - var(--nav-h) - var(--safe-b) - 12px);
+  max-height: none;
+}
+.panel.dragging { transition: none; }
+
+/* The grab handle, which is also what says the sheet can be moved. */
+.sheet-grip {
+  flex: 0 0 auto; padding: 7px 0 3px; display: flex; justify-content: center;
+  cursor: grab; touch-action: none;
+}
+.sheet-grip::before {
+  content: ''; width: 38px; height: 4px; border-radius: 99px;
+  background: rgba(255,255,255,.28);
+}
+.panel.dragging .sheet-grip { cursor: grabbing; }
+
 .panel-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
-  padding: 9px 12px 7px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  padding: 2px 14px 8px; border-bottom: 1px solid var(--glass-line); flex: 0 0 auto;
 }
 .panel-title { font-weight: 700; font-size: 16px; }
 .panel-sub { font-size: 12px; color: var(--dim); }
-.panel-body { overflow-y: auto; padding: 10px 12px 14px; -webkit-overflow-scrolling: touch; }
+.panel-body { flex: 1 1 auto; overflow-y: auto; padding: 10px 14px 18px;
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .icon-btn {
   width: 30px; height: 30px; border-radius: 4px; border: 1px solid var(--line);
   background: var(--panel-2); flex: 0 0 auto;
@@ -352,15 +424,21 @@ input { font: inherit; }
 /* ------------------------------------------------------------------- nav */
 
 .bottom-nav {
-  flex: 0 0 auto; display: flex; background: linear-gradient(180deg, #2a2820, #16150f);
-  border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 22;
+  display: flex;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  border-top: 1px solid var(--glass-line);
+  padding-bottom: var(--safe-b);
 }
 .nav-btn {
   flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 8px 2px 9px; font-size: 10.5px; color: var(--dim); position: relative;
-  border-right: 1px solid rgba(255,255,255,.05);
+  padding: 9px 2px 10px; font-size: 10.5px; color: var(--dim); position: relative;
+  border-right: 1px solid rgba(255,255,255,.05); justify-content: center;
 }
 .nav-btn:last-child { border-right: none; }
+.nav-btn.on { color: var(--accent-2); }
 .nav-btn:hover { color: var(--text); background: rgba(255,255,255,.04); }
 .nav-icon { font-size: 18px; line-height: 1; }
 .nav-badge {
@@ -489,6 +567,21 @@ input { font: inherit; }
  * the map taking every pixel the other two do not need.
  */
 @media (min-width: 1000px) {
+  /* The floating phone chrome goes back to being grid furniture. */
+  #topbar, #mapWrap, #panel, #bottomNav { position: static; inset: auto; }
+  #panel {
+    transform: none; height: auto; border-radius: 0; box-shadow: none;
+    background: var(--panel); -webkit-backdrop-filter: none; backdrop-filter: none;
+  }
+  .sheet-grip { display: none; }
+  .speed-controls, .map-modes { top: 10px; }
+  .toasts { bottom: 10px; }
+  .toasts .toast:nth-last-child(n+3) { display: flex; }
+  /* A wide screen has room to show every mode at once. */
+  .map-modes { flex-direction: row; flex-wrap: wrap; max-width: 62%; }
+  .mode-toggle { display: none; }
+  .mode-list { display: flex; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+
   #game.show {
     display: grid;
     grid-template-columns: var(--rail) minmax(0, 1fr) 0;
@@ -528,6 +621,7 @@ input { font: inherit; }
     border-top: none; border-left: 1px solid var(--line);
     display: flex; flex-direction: column; transition: none;
   }
+  #panel:not(.open) { visibility: hidden; }
   #panel:not(.open) { border-left-color: transparent; }
   #panel .panel-head { padding: 12px 14px 10px; }
   #panel .panel-body { flex: 1 1 auto; padding: 12px 14px 20px; }
@@ -697,11 +791,13 @@ input { font: inherit; }
 .settings-foot { margin-top: 10px; }
 
 /* The opening lesson: a card over the map, never blocking it. */
+/* Clear of the navigation and of the sheet, which both float over the map. */
 .tutorial {
-  display: none; position: absolute; left: 10px; right: 10px; bottom: 12px;
+  display: none; position: absolute; left: 10px; right: 10px; z-index: 30;
+  bottom: calc(var(--nav-h) + var(--safe-b) + 10px);
   background: linear-gradient(180deg, rgba(44,42,31,.97), rgba(29,28,20,.97));
   border: 1px solid var(--accent); border-left-width: 3px; border-radius: var(--radius);
-  padding: 11px 13px; z-index: 30; box-shadow: 0 6px 22px rgba(0,0,0,.5);
+  padding: 11px 13px; box-shadow: 0 6px 22px rgba(0,0,0,.5);
   max-width: 520px; margin: 0 auto;
 }
 .tutorial.show { display: block; }
@@ -717,17 +813,35 @@ input { font: inherit; }
 .b-icon .u-glyph, .u-icon .u-glyph { margin: 0 auto; }
 
 /* Map modes: the same geometry asked a different question. */
+/*
+ * Seven map modes as seven buttons wrapped to three rows over the top-left
+ * corner of a phone screen was most of the map gone.  It is one control that
+ * says which mode is on, and opens the rest only when asked.
+ */
 .map-modes {
-  position: absolute; left: 8px; top: 8px; z-index: 12;
-  display: flex; flex-wrap: wrap; gap: 4px; max-width: 62%;
+  position: absolute; left: 8px; top: calc(var(--top-h) + 8px); z-index: 12;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  max-width: 60%;
 }
+.mode-toggle {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--glass); border: 1px solid var(--glass-line); border-radius: 999px;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  padding: 5px 11px 5px 9px; font-size: 11.5px; font-weight: 600; color: var(--accent-2);
+  letter-spacing: .04em;
+}
+.mode-toggle .caret { font-size: 9px; opacity: .7; transition: transform .18s; }
+.map-modes.open .mode-toggle .caret { transform: rotate(180deg); }
+.mode-list { display: none; flex-direction: column; gap: 3px; }
+.map-modes.open .mode-list { display: flex; }
 .mode-btn {
-  background: rgba(28,27,20,.86); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 5px 9px; font-size: 11px; letter-spacing: .06em; color: var(--dim);
-  backdrop-filter: blur(2px);
+  text-align: left;
+  background: var(--glass); border: 1px solid var(--glass-line); border-radius: 999px;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  padding: 5px 12px; font-size: 11.5px; letter-spacing: .04em; color: var(--dim);
 }
 .mode-btn:hover { border-color: var(--accent); color: var(--text); }
-.mode-btn.on { border-color: var(--accent); background: rgba(200,162,74,.2); color: var(--accent-2); font-weight: 600; }
+.mode-btn.on { border-color: var(--accent); background: rgba(200,162,74,.22); color: var(--accent-2); font-weight: 600; }
 
 /* Bottom-right: the log occupies the left of the map. */
 .map-legend {

@@ -597,6 +597,133 @@ function fail(msg) { console.error('FAIL: ' + msg); process.exitCode = 1; }
     IA.economy.refreshSupply(s);
   });
   await page.click('#modalClose');
+  await page.waitForTimeout(150);
+
+  /*
+   * The phone layout.
+   *
+   * The map is the screen: the status bar, the sheet and the navigation float
+   * over it rather than taking slices out of it, and whatever you have selected
+   * has to end up in the band you can still see — centring it behind the sheet
+   * is the failure this checks for.
+   */
+  var phone = await page.evaluate(function () {
+    var s = IA.game.current;
+    IA.UI.selectProvince(s.nationById[s.playerId].capitalProvince);
+    return new Promise(function (done) {
+      setTimeout(function () {
+        function box(id) { return document.getElementById(id).getBoundingClientRect(); }
+        var map = box('map'), panel = box('panel'), nav = box('bottomNav'), top = box('topbar');
+        var cap = s.provinces[s.nationById[s.playerId].capitalProvince];
+        var at = IA.UI.renderer.toScreen(cap.cx, cap.cy);
+        done({
+          mapH: map.height, viewH: window.innerHeight, mapTop: map.top,
+          sheetOverMap: panel.left < map.right && panel.right > map.left,
+          sheetTop: panel.top, navTop: nav.top, navH: nav.height,
+          topH: top.height, capY: at.y, capX: at.x,
+          grip: !!document.querySelector('#panel .sheet-grip'),
+          modeButtons: document.querySelectorAll('#mapModes .mode-btn').length,
+          modeListShown: getComputedStyle(document.querySelector('#mapModes .mode-list')).display
+        });
+      }, 500);
+    });
+  });
+  if (Math.abs(phone.mapH - phone.viewH) > 2 || phone.mapTop > 1) {
+    fail('the map does not fill the phone screen (' + Math.round(phone.mapH) +
+      'px of ' + phone.viewH + ', top at ' + Math.round(phone.mapTop) + ')');
+  } else if (!phone.sheetOverMap) {
+    fail('the detail sheet is not over the map');
+  } else if (!phone.grip) {
+    fail('the sheet has no handle to drag');
+  } else if (phone.modeListShown !== 'none' || phone.modeButtons < 5) {
+    fail('the map modes are not folded away on a phone (' + phone.modeButtons +
+      ' buttons, list ' + phone.modeListShown + ')');
+  } else if (phone.capY < phone.topH || phone.capY > phone.sheetTop) {
+    fail('the selection sits behind the interface: y=' + Math.round(phone.capY) +
+      ', clear band is ' + Math.round(phone.topH) + '-' + Math.round(phone.sheetTop));
+  } else {
+    console.log('phone: map fills ' + Math.round(phone.mapH) + 'px, sheet from ' +
+      Math.round(phone.sheetTop) + ', selection at y=' + Math.round(phone.capY) +
+      ' inside the clear band');
+  }
+
+  /*
+   * Animation.
+   *
+   * A still screenshot cannot tell whether anything moves, so this pauses the
+   * war — nothing in the simulation is changing — sets up a march and a
+   * bombardment, and requires the map to keep repainting differently anyway.
+   * If the route dashes, the wake and the shells are drawing, consecutive
+   * frames of a frozen world differ; if they are not, they are identical.
+   */
+  var staged = await page.evaluate(function () {
+    var s = IA.game.current;
+    var me = s.nationById[s.playerId];
+    IA.UI.setSpeed('pause');
+    var mine = IA.state.armiesOf(s, me.id).filter(function (a) {
+      return IA.orders.armyDomain(a) === 'land';
+    });
+    if (!mine.length) return { ok: false, why: 'the player has no land stacks' };
+
+    // One stack on the march, to a province two legs away if there is one.
+    var mover = mine[0];
+    var here = s.provinces[mover.provinceId];
+    var far = here.neighbors.filter(function (id) { return !s.provinces[id].isSea; })[0];
+    if (far === undefined) return { ok: false, why: 'nowhere to march to' };
+    var moved = IA.orders.issueMove(s, mover, far);
+    if (!moved.ok) return { ok: false, why: 'move refused: ' + moved.why };
+    // Put it part-way along the leg so the wake has something to draw.
+    mover.legRemaining = mover.legTotal * 0.5;
+
+    /*
+     * And one battery firing.  Guns are not on the map at the start, so the
+     * shot is staged directly rather than waiting for the economy to build one.
+     */
+    var gunProv = mine.length > 1 ? mine[1].provinceId : mover.provinceId;
+    var battery = IA.state.spawnArmy(s, me.id, gunProv, [{ typeId: 'field_artillery', count: 2 }]);
+    var mark = s.provinces[gunProv].neighbors.filter(function (id) {
+      return !s.provinces[id].isSea && s.provinces[id].nationId !== me.id;
+    })[0];
+    if (mark === undefined) mark = s.provinces[gunProv].neighbors[0];
+    var shot = IA.orders.issueBombard(s, battery, mark);
+    IA.UI.renderer.centerOn(mover.provinceId, 7);
+    return {
+      ok: true, firing: !!(shot && shot.ok),
+      army: mover.id, target: s.provinces[mark] ? s.provinces[mark].name : '?'
+    };
+  });
+  if (!staged.ok) {
+    fail('could not stage the animation check: ' + staged.why);
+  } else {
+    if (!staged.firing) fail('the bombardment order was refused');
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: path.join(SHOTS, '16-motion.png') });
+    var moving = await page.evaluate(function () {
+      var canvas = document.getElementById('map');
+      function shot() { return canvas.toDataURL('image/png'); }
+      return new Promise(function (done) {
+        var before = shot();
+        var frozen = IA.game.current.time;
+        setTimeout(function () {
+          done({
+            changed: shot() !== before,
+            still: IA.game.current.time === frozen
+          });
+        }, 260);
+      });
+    });
+    if (!moving.still) fail('the war was not paused, so a changed frame proves nothing');
+    else if (!moving.changed) fail('nothing on the map moved between frames of a paused war');
+    else console.log('animation: a paused map still repaints — routes, wakes and shells are moving');
+  }
+  await page.evaluate(function () {
+    var s = IA.game.current;
+    for (var i = s.armies.length - 1; i >= 0; i--) {
+      var a = s.armies[i];
+      if (a.units.length === 1 && a.units[0].typeId === 'field_artillery') IA.state.removeArmy(s, a);
+      else if (a.order && a.order.type === 'bombard') a.order = null;
+    }
+  });
 
   // Run the clock hard and make sure nothing throws.
   await page.evaluate(function () { IA.UI.setSpeed('16x'); });

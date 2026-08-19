@@ -598,12 +598,23 @@
     this.clampCamera();
   };
 
+  /*
+   * Keep the map inside the part of the canvas you can actually see.  With the
+   * status bar and the detail sheet lying over it, clamping to the canvas would
+   * pin the world to the geometric centre — which is under the sheet — and
+   * leave a band of empty ocean above it.
+   */
   Renderer.prototype.clampCamera = function () {
     var w = this.state.mapW, h = this.state.mapH;
-    var halfW = this.viewW / (2 * this.camera.zoom);
-    var halfH = this.viewH / (2 * this.camera.zoom);
+    var z = this.camera.zoom;
+    var halfW = this.viewW / (2 * z);
     this.camera.x = clamp(this.camera.x, Math.min(halfW, w / 2), Math.max(w - halfW, w / 2));
-    this.camera.y = clamp(this.camera.y, Math.min(halfH, h / 2), Math.max(h - halfH, h / 2));
+
+    // Distance from the camera to the top and bottom of the clear band.
+    var up = (this.viewH / 2 - (this.insetTop || 0)) / z;
+    var down = (this.viewH / 2 - (this.insetBottom || 0)) / z;
+    var lo = up, hi = h - down;
+    this.camera.y = lo <= hi ? clamp(this.camera.y, lo, hi) : (lo + hi) / 2;
   };
 
   Renderer.prototype.toScreen = function (mx, my) {
@@ -651,12 +662,26 @@
     this.noteMotion();
   };
 
+  /*
+   * Centring means the middle of what you can actually see.  The map runs
+   * full-bleed under the status bar and the detail sheet, so on a phone with
+   * the sheet up the geometric centre of the canvas is behind it — and a
+   * province you just selected would be centred exactly where you cannot look
+   * at it.  `inset` is what the interface has covered, in CSS pixels.
+   */
+  Renderer.prototype.setInset = function (top, bottom) {
+    this.insetTop = top || 0;
+    this.insetBottom = bottom || 0;
+  };
+
   Renderer.prototype.centerOn = function (provinceId, zoom) {
     var p = this.state.provinces[provinceId];
     if (!p) return;
-    this.camera.x = p.cx;
-    this.camera.y = p.cy;
     if (zoom) this.camera.zoom = clamp(zoom, this.minZoom, this.maxZoom);
+    this.camera.x = p.cx;
+    // Shift the camera so the target lands in the middle of the clear band.
+    var shift = ((this.insetTop || 0) - (this.insetBottom || 0)) / 2;
+    this.camera.y = p.cy - shift / this.camera.zoom;
     this.clampCamera();
     this.noteMotion();
   };
@@ -1031,6 +1056,7 @@
     this.drawNationLabels(ctx);
     this.drawProvinceMarkers(ctx, ui);
     this.drawPaths(ctx, ui);
+    this.drawStrikes(ctx, ui);
     this.drawArmies(ctx, ui);
     this.drawLabels(ctx, ui);
     ctx.restore();
@@ -1117,10 +1143,24 @@
        * so a front that is actually being fought over flickers and one that has
        * gone quiet simply stops.
        */
-      if (state.battleProvinces && z > 2) {
+      /*
+       * A battle is not one shell.  Three bursts scattered across the province,
+       * each on its own phase, read as a fight rather than as a marker; the
+       * scatter is derived from the province id so it stays put between frames
+       * instead of crawling.
+       */
+      if (state.battleProvinces && z > 1.1) {
         var since = state.time - state.battleProvinces[p.id];
         if (since >= 0 && since < 1.01) {
-          drawBurst(ctx, s.x, s.y, clamp(z * 0.9, 6, 17), 1 - since / 1.01, now());
+          var strength = 1 - since / 1.01;
+          var size = clamp(z * 0.9, 5, 17);
+          var spread = Math.min(size * 1.9, (p.bbox[2] - p.bbox[0]) * z * 0.3);
+          for (var b = 0; b < 3; b++) {
+            var ang = ((p.id * 2654435761 + b * 1013904223) % 6283) / 1000;
+            var rad = spread * (0.25 + ((p.id + b * 7) % 5) / 6);
+            drawBurst(ctx, s.x + Math.cos(ang) * rad, s.y + Math.sin(ang) * rad,
+              size * (b === 0 ? 1 : 0.66), strength, now() + b * 260);
+          }
         }
       }
     }
@@ -1167,6 +1207,118 @@
     ctx.restore();
   }
 
+  /** Dash travel in pixels per millisecond of wall clock. */
+  var DASH_SPEED = 0.018;
+
+  /** A stable small number from a stack's id, so columns do not march in step. */
+  function hashOf(id) {
+    var h = 0;
+    for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 6280;
+    return h / 1000;
+  }
+
+  /*
+   * The ground a stack has already covered on this leg, drawn as a short fading
+   * wake behind it.  Without it a marker part-way between two provinces reads
+   * as standing in the middle of nowhere rather than as being on the road.
+   */
+  Renderer.prototype.drawWake = function (ctx, army, head) {
+    var from = this.state.provinces[army.provinceId];
+    var a = this.toScreen(from.cx, from.cy);
+    var dx = head.x - a.x, dy = head.y - a.y;
+    var len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 4) return;
+    var tail = Math.min(len, 46);
+    var nation = this.state.nationById[army.ownerId];
+    var grad = ctx.createLinearGradient(head.x - dx / len * tail, head.y - dy / len * tail, head.x, head.y);
+    grad.addColorStop(0, 'rgba(255,255,255,0)');
+    grad.addColorStop(1, nation ? nation.color : '#ffffff');
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(head.x - dx / len * tail, head.y - dy / len * tail);
+    ctx.lineTo(head.x, head.y);
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  /*
+   * Bombardment.
+   *
+   * Shelling a neighbour is the one attack that happens between two provinces
+   * rather than inside one, and it was invisible: the guns fired, the target
+   * lost men, and nothing on the map said where it was coming from.  Each
+   * firing stack now throws a shell along an arc onto its target, on the frame
+   * clock so the rate reads the same at any game speed.
+   */
+  var SHELL_FLIGHT = 1100;          // milliseconds for one shell to cross
+
+  Renderer.prototype.drawStrikes = function (ctx, ui) {
+    var state = this.state;
+    var t = now();
+    var box = this.viewBox(6);
+    for (var i = 0; i < state.armies.length; i++) {
+      var army = state.armies[i];
+      if (!army.order || army.order.type !== 'bombard') continue;
+      var target = state.provinces[army.order.target];
+      if (!target || !overlaps(box, target.bbox)) continue;
+      if (army.ownerId !== state.playerId && ui && ui.visible &&
+        !ui.visible[army.provinceId] && !ui.visible[target.id]) continue;
+
+      var head = this.armyPoint(army);
+      var a = this.toScreen(head.x, head.y);
+      var b = this.toScreen(target.cx, target.cy);
+      var dx = b.x - a.x, dy = b.y - a.y;
+      var span = Math.sqrt(dx * dx + dy * dy);
+      if (span < 6) continue;
+      // Batteries do not fire in unison; each stack keeps its own beat.
+      var phase = ((t + hashOf(army.id) * 900) % SHELL_FLIGHT) / SHELL_FLIGHT;
+      var nation = state.nationById[army.ownerId];
+
+      // The trajectory, faint, so the pairing is readable while nothing is in
+      // the air.
+      var lift = Math.min(span * 0.22, 46);
+      var mx = (a.x + b.x) / 2 - dy / span * lift;
+      var my = (a.y + b.y) / 2 + dx / span * lift;
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.strokeStyle = nation ? nation.color : '#ffb469';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 6]);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.quadraticCurveTo(mx, my, b.x, b.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // The shell itself, and a short trail behind it.
+      var u = phase, v = 1 - u;
+      var sx = v * v * a.x + 2 * v * u * mx + u * u * b.x;
+      var sy = v * v * a.y + 2 * v * u * my + u * u * b.y;
+      var pu = Math.max(0, u - 0.06), pv = 1 - pu;
+      var px = pv * pv * a.x + 2 * pv * pu * mx + pu * pu * b.x;
+      var py = pv * pv * a.y + 2 * pv * pu * my + pu * pu * b.y;
+      ctx.globalAlpha = 0.85;
+      ctx.strokeStyle = '#ffd489';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(sx, sy);
+      ctx.stroke();
+      ctx.restore();
+
+      // And the fall of shot at the far end.
+      if (phase > 0.88) {
+        drawBurst(ctx, b.x, b.y, clamp(this.camera.zoom * 0.8, 5, 14),
+          (phase - 0.88) / 0.12, t);
+      }
+    }
+  };
+
   /**
    * March routes are drawn as a pale bed with a dashed stripe over it, so a
    * long order stays readable across terrain of any colour, and the
@@ -1209,11 +1361,19 @@
       trace.call(this, ctx);
       ctx.stroke();
 
+      /*
+       * The dashes run toward the destination.  A stack crossing a province
+       * takes tens of game hours, so at anything short of the highest speed its
+       * marker barely appears to move; the flowing stripe is what actually says
+       * "this is under way and going that way" at a glance.
+       */
       ctx.setLineDash([7, 7]);
+      ctx.lineDashOffset = -((now() * DASH_SPEED) % 14);
       ctx.lineWidth = selected ? 6 : 4;
       ctx.strokeStyle = stripe;
       trace.call(this, ctx);
       ctx.stroke();
+      ctx.lineDashOffset = 0;
 
       // Destination pin.
       ctx.setLineDash([]);
@@ -1263,7 +1423,14 @@
           continue;
         }
         var offset = (k - (list.length - 1) / 2) * (w * 0.55);
-        drawStack.call(this, ctx, army, s.x + offset, s.y - h * 0.9, w, h, ui);
+        var bob = 0;
+        if (army.path.length && army.legTotal) {
+          this.drawWake(ctx, army, s);
+          // Two thirds of a second a stride: enough to read as marching, slow
+          // enough not to jitter a column of a dozen counters.
+          bob = Math.sin(now() * 0.0094 + hashOf(army.id)) * 1.1;
+        }
+        drawStack.call(this, ctx, army, s.x + offset, s.y - h * 0.9 + bob, w, h, ui);
       }
     }
 
